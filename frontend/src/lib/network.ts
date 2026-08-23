@@ -35,3 +35,55 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
 };
 
 export const DEFAULT_NETWORK: NetworkId = "mainnet";
+
+// Etherscan pattern: bare domain = mainnet, testnet.* subdomain = testnet.
+// The query param covers local dev and preview deploys without DNS.
+export function resolveNetwork(hostname: string, search: string): NetworkId {
+  if (hostname.startsWith("testnet.")) {
+    return "testnet";
+  }
+  return new URLSearchParams(search).get("network") === "testnet"
+    ? "testnet"
+    : DEFAULT_NETWORK;
+}
+
+export const ACTIVE_NETWORK: NetworkId = resolveNetwork(
+  window.location.hostname,
+  window.location.search,
+);
+
+const usesSubdomain = window.location.hostname.startsWith("testnet.");
+
+/**
+ * Internal navigation target that keeps the selected network in the URL,
+ * so a shared link always opens on the sender's network.
+ */
+export function appPath(path: string): string {
+  if (ACTIVE_NETWORK === "testnet" && !usesSubdomain) {
+    return path + (path.includes("?") ? "&" : "?") + "network=testnet";
+  }
+  return path;
+}
+
+export function networkToggleUrl(location: {
+  hostname: string;
+  pathname: string;
+  search: string;
+}): string {
+  const target =
+    resolveNetwork(location.hostname, location.search) === "mainnet"
+      ? "testnet"
+      : "mainnet";
+  const params = new URLSearchParams(location.search);
+  params.delete("network");
+  if (location.hostname.endsWith("soroscan.io")) {
+    const host = target === "testnet" ? "testnet.soroscan.io" : "soroscan.io";
+    const query = params.toString();
+    return `https://${host}${location.pathname}${query ? "?" + query : ""}`;
+  }
+  if (target === "testnet") {
+    params.set("network", "testnet");
+  }
+  const query = params.toString();
+  return `${location.pathname}${query ? "?" + query : ""}`;
+}
