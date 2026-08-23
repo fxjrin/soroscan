@@ -1,6 +1,7 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
 import {
   fetchLatestLedgers,
+  fetchLatestTransactions,
   horizonGet,
   type LedgerRecord,
 } from "@/lib/horizon/client";
@@ -40,6 +41,18 @@ export function ledgerQuery(network: NetworkId, sequence: string) {
         signal,
       ),
     staleTime: Infinity, // a closed ledger is immutable
+  });
+}
+
+// polled, not streamed: Horizon tx records carry full XDR envelopes, so a
+// mainnet-volume SSE feed moves hundreds of KB per reconnect for 8 rows
+export function latestTransactionsQuery(network: NetworkId, limit: number) {
+  return queryOptions({
+    queryKey: [network, "horizon", "transactions", "latest", limit],
+    queryFn: ({ signal }) => fetchLatestTransactions(network, limit, signal),
+    refetchInterval: (query) =>
+      query.state.status === "error" ? ERROR_BACKOFF_MS : LEDGER_CLOSE_MS,
+    staleTime: LEDGER_CLOSE_MS - 1000,
   });
 }
 

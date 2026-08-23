@@ -51,6 +51,16 @@ export async function horizonGet<T>(
   return body;
 }
 
+export interface TxRecord {
+  hash: string;
+  paging_token: string;
+  successful: boolean;
+  source_account: string;
+  operation_count: number;
+  created_at: string;
+  fee_charged: string;
+}
+
 export function fetchLatestLedgers(
   network: NetworkId,
   limit: number,
@@ -60,6 +70,19 @@ export function fetchLatestLedgers(
     network,
     "/ledgers",
     { order: "desc", limit },
+    signal,
+  );
+}
+
+export function fetchLatestTransactions(
+  network: NetworkId,
+  limit: number,
+  signal?: AbortSignal,
+) {
+  return horizonGet<HorizonPage<TxRecord>>(
+    network,
+    "/transactions",
+    { order: "desc", limit, include_failed: "true" },
     signal,
   );
 }
