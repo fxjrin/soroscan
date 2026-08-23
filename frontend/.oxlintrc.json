@@ -11,6 +11,12 @@
       "rules": {
         "react/only-export-components": "off"
       }
+    },
+    {
+      "files": ["src/lib/format.ts"],
+      "rules": {
+        "no-control-regex": "off"
+      }
     }
   ]
 }
