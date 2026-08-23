@@ -1,5 +1,9 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
-import { fetchLatestLedgers } from "@/lib/horizon/client";
+import {
+  fetchLatestLedgers,
+  horizonGet,
+  type LedgerRecord,
+} from "@/lib/horizon/client";
 import { fetchHealth } from "@/lib/rpc/client";
 import type { NetworkId } from "@/lib/network";
 
@@ -22,6 +26,20 @@ export function healthQuery(network: NetworkId) {
     refetchInterval: (query) =>
       query.state.status === "error" ? ERROR_BACKOFF_MS : LEDGER_CLOSE_MS,
     staleTime: LEDGER_CLOSE_MS - 1000,
+  });
+}
+
+export function ledgerQuery(network: NetworkId, sequence: string) {
+  return queryOptions({
+    queryKey: [network, "horizon", "ledger", sequence],
+    queryFn: ({ signal }) =>
+      horizonGet<LedgerRecord>(
+        network,
+        `/ledgers/${sequence}`,
+        undefined,
+        signal,
+      ),
+    staleTime: Infinity, // a closed ledger is immutable
   });
 }
 
