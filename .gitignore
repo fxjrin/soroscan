@@ -1,0 +1,14 @@
+# dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# editor and OS noise
+.DS_Store
+.idea/
+*.local

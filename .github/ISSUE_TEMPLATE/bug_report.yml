@@ -1,0 +1,42 @@
+name: Bug report
+description: Something shows wrong data, breaks, or misbehaves
+title: "bug: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Explorer bugs are almost always tied to a specific on-chain entity, so the exact hash or address is the reproduction.
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Mainnet
+        - Testnet
+    validations:
+      required: true
+  - type: input
+    id: entity
+    attributes:
+      label: Entity involved
+      description: The tx hash, account (G...), contract (C...), ledger sequence, or asset the bug appears on
+      placeholder: "e.g. C... or 64-char tx hash"
+  - type: input
+    id: url
+    attributes:
+      label: Page URL
+      placeholder: "https://soroscan.io/..."
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead? Screenshots welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and OS, only if the problem looks visual or device-specific
+      placeholder: "e.g. Chrome 139 on Android"
