@@ -17,16 +17,25 @@ A Stellar block explorer with a modern, contract-first UI.
 
 ## Roadmap
 
-| Phase | Scope | Status |
-|---|---|---|
-| 1 | Stateless SPA querying Horizon and Stellar RPC directly, mainnet + testnet | In progress |
-| 2 | Indexer for full history, token holders, search, and a realtime API | Planned |
+| Phase | Scope                                                                      | Status      |
+| ----- | -------------------------------------------------------------------------- | ----------- |
+| 1     | Stateless SPA querying Horizon and Stellar RPC directly, mainnet + testnet | In progress |
+| 2     | Indexer for full history, token holders, search, and a realtime API        | Planned     |
 
 ## Tech stack
 
 - Frontend: React, TypeScript, Vite
 - Data: Stellar RPC and Horizon, with provider failover
 - Backend (phase 2): Go, built on the Stellar Composable Data Platform
+
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+Other scripts: `build`, `preview`, `lint`, `typecheck`, `format`, `test`. CI runs format check, lint, typecheck, tests, and build on every pull request.
 
 ## Contributing
 
