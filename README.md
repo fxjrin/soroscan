@@ -28,9 +28,15 @@ A Stellar block explorer with a modern, contract-first UI.
 - Data: Stellar RPC and Horizon, with provider failover
 - Backend (phase 2): Go, built on the Stellar Composable Data Platform
 
+## Repository layout
+
+- `frontend/` - the React SPA (phase 1)
+- `indexer/` - the Go indexer (phase 2, not started)
+
 ## Development
 
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
