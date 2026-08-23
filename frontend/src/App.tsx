@@ -1,7 +1,13 @@
+import { useQuery } from "@tanstack/react-query";
 import { LogoMark } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DEFAULT_NETWORK } from "@/lib/network";
+import { healthQuery } from "@/lib/queries";
 
 export function App() {
+  const health = useQuery(healthQuery(DEFAULT_NETWORK));
+
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-4">
       <LogoMark size={64} />
@@ -9,7 +15,20 @@ export function App() {
       <p className="text-muted-foreground">
         A Stellar block explorer with a modern, contract-first UI.
       </p>
-      <Badge variant="secondary">pre-alpha</Badge>
+      <div className="flex items-center gap-2">
+        <Badge variant="secondary">pre-alpha</Badge>
+        {health.isPending ? (
+          <Skeleton className="h-[22px] w-36 rounded-full" />
+        ) : health.isError ? (
+          <Badge variant="outline" className="text-muted-foreground">
+            network unreachable
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="font-mono tabular-nums">
+            ledger {health.data.latestLedger.toLocaleString("en-US")}
+          </Badge>
+        )}
+      </div>
     </main>
   );
 }
