@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-A Stellar block explorer with a modern, contract-first UI.
+A Stellar block explorer.
 
 > **Status: pre-alpha.** The project is under active development and application code lands incrementally. Star or watch the repo to follow along.
 

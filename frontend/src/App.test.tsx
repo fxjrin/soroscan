@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { resetFailoverState } from "@/lib/failover";
 
 beforeEach(() => {
@@ -18,7 +19,9 @@ function renderApp() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <App />
+      <TooltipProvider>
+        <App />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -31,10 +34,12 @@ test("renders the app shell while offline", () => {
 
   renderApp();
 
-  expect(screen.getByText("Soroscan")).toBeDefined();
+  expect(
+    screen.getByRole("heading", { level: 1, name: "soroscan" }),
+  ).toBeDefined();
 });
 
-test("shows the live ledger height when rpc responds", async () => {
+test("shows network health when rpc responds", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: unknown, init?: RequestInit) => {
@@ -59,5 +64,5 @@ test("shows the live ledger height when rpc responds", async () => {
 
   renderApp();
 
-  expect(await screen.findByText("ledger 55,443,322")).toBeDefined();
+  expect(await screen.findByText("network healthy")).toBeDefined();
 });

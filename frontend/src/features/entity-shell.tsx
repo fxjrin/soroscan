@@ -9,10 +9,10 @@ interface EntityShellProps {
 
 export function EntityShell({ title, identifier, children }: EntityShellProps) {
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-10">
+    <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
       <div className="mt-2 text-sm">{identifier}</div>
-      <Card className="mt-6">
+      <Card className="mt-8">
         <CardContent className="pt-6 text-sm">{children}</CardContent>
       </Card>
     </main>

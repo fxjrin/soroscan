@@ -33,7 +33,7 @@ export function SearchBox({ className }: { className?: string }) {
         placeholder="Search account, contract, tx hash, or ledger"
         aria-label="Search"
         aria-invalid={invalid || undefined}
-        className="font-mono text-sm"
+        className="elevated h-12 border-0 bg-card px-4 font-mono text-base"
       />
       {invalid ? (
         <p className="mt-1 text-xs text-destructive" role="alert">

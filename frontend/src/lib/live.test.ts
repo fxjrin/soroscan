@@ -32,3 +32,20 @@ test("averageCloseSeconds averages consecutive close-time gaps", () => {
   expect(averageCloseSeconds(closedAts)).toBe(5.5);
   expect(averageCloseSeconds(["2026-08-23T19:30:10Z"])).toBeUndefined();
 });
+
+test("mergeRecords drops duplicate keys inside one incoming batch", () => {
+  const incoming = [
+    { paging_token: "3" },
+    { paging_token: "3" },
+    { paging_token: "2" },
+  ];
+
+  const merged = mergeRecords(
+    [{ paging_token: "1" }],
+    incoming,
+    (record) => record.paging_token,
+    5,
+  );
+
+  expect(merged.map((record) => record.paging_token)).toEqual(["3", "2", "1"]);
+});

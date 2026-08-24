@@ -1,3 +1,5 @@
+import { recordClockSample } from "@/lib/clock";
+
 export class UpstreamError extends Error {
   readonly status?: number;
 
@@ -51,6 +53,7 @@ export async function fetchJsonWithFailover<T>(
       ? AbortSignal.any([signal, AbortSignal.timeout(PER_ATTEMPT_TIMEOUT_MS)])
       : AbortSignal.timeout(PER_ATTEMPT_TIMEOUT_MS);
     try {
+      const requestStarted = Date.now();
       const response = await fetch(baseUrls[index] + path, {
         ...init,
         signal: attemptSignal,
@@ -62,6 +65,11 @@ export async function fetchJsonWithFailover<T>(
         );
         await response.body?.cancel();
         continue;
+      }
+      // only providers whose answer we accept get to steer the clock
+      const serverDate = response.headers.get("date");
+      if (serverDate) {
+        recordClockSample(serverDate, Date.now() - requestStarted);
       }
       const body = (await response.json()) as T;
       lastHealthy.set(key, index);
