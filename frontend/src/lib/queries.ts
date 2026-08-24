@@ -1,11 +1,19 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
 import {
   fetchLatestLedgers,
+  fetchLatestOperations,
   fetchLatestTransactions,
+  fetchTransactionOperations,
   horizonGet,
   type LedgerRecord,
 } from "@/lib/horizon/client";
-import { fetchHealth } from "@/lib/rpc/client";
+import {
+  buildActivityRows,
+  presentOperation,
+  type ActivityRow,
+} from "@/lib/activity";
+import { chainNow } from "@/lib/clock";
+import { fetchFeeStats, fetchHealth } from "@/lib/rpc/client";
 import type { NetworkId } from "@/lib/network";
 
 export const queryClient = new QueryClient({
@@ -20,13 +28,55 @@ export const queryClient = new QueryClient({
 const LEDGER_CLOSE_MS = 5000;
 const ERROR_BACKOFF_MS = 30_000;
 
+const EXPECTED_DETECT_MS = 7500; // one cadence (~5.5s) + RPC ingest lag (~2s)
+
+/**
+ * Cadence-locked polling: aim one poll at the moment the next ledger
+ * should be visible to RPC, then burst every 500ms only while overdue.
+ * Faster detection than a fixed grid with fewer requests overall.
+ */
+export function nextHealthPollDelay(
+  closeTimeSec: number,
+  nowMs: number,
+): number {
+  if (!Number.isFinite(closeTimeSec)) {
+    return 2500;
+  }
+  const nextDetectMs = closeTimeSec * 1000 + EXPECTED_DETECT_MS;
+  return Math.min(8000, Math.max(500, nextDetectMs - nowMs));
+}
+
+// RPC detects a new ledger ~2s after close while Horizon SSE delivers it
+// ~5s after, so this is the low-latency heartbeat for the ring and the
+// latest-ledger number
 export function healthQuery(network: NetworkId) {
   return queryOptions({
     queryKey: [network, "rpc", "health"],
     queryFn: ({ signal }) => fetchHealth(network, signal),
+    refetchInterval: (query) => {
+      if (query.state.status === "error") {
+        return ERROR_BACKOFF_MS;
+      }
+      const data = query.state.data;
+      if (!data) {
+        return 2000;
+      }
+      return nextHealthPollDelay(
+        Number(data.latestLedgerCloseTime),
+        chainNow(),
+      );
+    },
+    staleTime: 400,
+  });
+}
+
+export function feeStatsQuery(network: NetworkId) {
+  return queryOptions({
+    queryKey: [network, "rpc", "fee-stats"],
+    queryFn: ({ signal }) => fetchFeeStats(network, signal),
     refetchInterval: (query) =>
-      query.state.status === "error" ? ERROR_BACKOFF_MS : LEDGER_CLOSE_MS,
-    staleTime: LEDGER_CLOSE_MS - 1000,
+      query.state.status === "error" ? ERROR_BACKOFF_MS : 30_000,
+    staleTime: 25_000,
   });
 }
 
@@ -44,12 +94,54 @@ export function ledgerQuery(network: NetworkId, sequence: string) {
   });
 }
 
+const OPS_LOOKBACK = 25; // first ops for ~8 txs without joining heavy tx envelopes
+
+// one mass-payout tx can hold 100+ operations and eat the whole lookback,
+// leaving the other rows untyped; those few fetch their first op directly
+async function fillMissingOps(
+  network: NetworkId,
+  rows: ActivityRow[],
+  signal: AbortSignal,
+): Promise<ActivityRow[]> {
+  const fetched = await Promise.all(
+    rows.map(async (row) => {
+      if (row.op !== undefined) {
+        return row; // hashes were already shape-checked in buildActivityRows
+      }
+      try {
+        const page = await fetchTransactionOperations(
+          network,
+          row.tx.hash,
+          1,
+          signal,
+        );
+        const op = page._embedded.records[0];
+        return op === undefined ? row : { ...row, op: presentOperation(op) };
+      } catch {
+        return row; // an untyped row beats failing the whole feed
+      }
+    }),
+  );
+  return fetched;
+}
+
 // polled, not streamed: Horizon tx records carry full XDR envelopes, so a
-// mainnet-volume SSE feed moves hundreds of KB per reconnect for 8 rows
-export function latestTransactionsQuery(network: NetworkId, limit: number) {
+// mainnet-volume SSE feed moves hundreds of KB per reconnect for 8 rows;
+// an operations lookback rides the same beat to say what each tx does
+export function latestActivityQuery(network: NetworkId, limit: number) {
   return queryOptions({
-    queryKey: [network, "horizon", "transactions", "latest", limit],
-    queryFn: ({ signal }) => fetchLatestTransactions(network, limit, signal),
+    queryKey: [network, "horizon", "activity", "latest", limit],
+    queryFn: async ({ signal }) => {
+      const [txs, ops] = await Promise.all([
+        fetchLatestTransactions(network, limit, signal),
+        fetchLatestOperations(network, OPS_LOOKBACK, signal),
+      ]);
+      const rows = buildActivityRows(
+        txs._embedded.records,
+        ops._embedded.records,
+      );
+      return fillMissingOps(network, rows, signal);
+    },
     refetchInterval: (query) =>
       query.state.status === "error" ? ERROR_BACKOFF_MS : LEDGER_CLOSE_MS,
     staleTime: LEDGER_CLOSE_MS - 1000,

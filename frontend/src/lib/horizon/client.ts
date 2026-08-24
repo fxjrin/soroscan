@@ -22,6 +22,7 @@ export interface LedgerRecord {
   operation_count: number;
   protocol_version: number;
   paging_token: string;
+  fee_pool?: string;
 }
 
 export async function horizonGet<T>(
@@ -70,6 +71,71 @@ export function fetchLatestLedgers(
     network,
     "/ledgers",
     { order: "desc", limit },
+    signal,
+  );
+}
+
+// operation records are polymorphic per type; the optional fields cover
+// the variants the activity feed presents, unknown types pass through
+export interface OperationRecord {
+  id: string;
+  paging_token: string;
+  transaction_hash: string;
+  type: string;
+  source_account: string;
+  from?: string;
+  to?: string;
+  amount?: string;
+  asset_type?: string;
+  asset_code?: string;
+  funder?: string;
+  account?: string;
+  starting_balance?: string;
+  into?: string;
+  address?: string;
+  function?: string;
+  parameters?: Array<{ type: string; value: string }>;
+  asset_balance_changes?: Array<{
+    type: string;
+    from?: string;
+    to?: string;
+    amount?: string;
+    asset_type?: string;
+    asset_code?: string;
+  }>;
+  selling_asset_type?: string;
+  selling_asset_code?: string;
+  buying_asset_type?: string;
+  buying_asset_code?: string;
+  trustor?: string;
+  trustee?: string;
+  asset_issuer?: string;
+  asset?: string;
+}
+
+export function fetchLatestOperations(
+  network: NetworkId,
+  limit: number,
+  signal?: AbortSignal,
+) {
+  return horizonGet<HorizonPage<OperationRecord>>(
+    network,
+    "/operations",
+    { order: "desc", limit, include_failed: "true" },
+    signal,
+  );
+}
+
+export function fetchTransactionOperations(
+  network: NetworkId,
+  hash: string,
+  limit: number,
+  signal?: AbortSignal,
+) {
+  return horizonGet<HorizonPage<OperationRecord>>(
+    network,
+    `/transactions/${hash}/operations`,
+    { order: "asc", limit },
     signal,
   );
 }

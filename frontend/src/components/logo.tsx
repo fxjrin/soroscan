@@ -1,5 +1,3 @@
-import { cn } from "@/lib/utils";
-
 const STAR_GOLD = "#F5C84C";
 
 export function LogoMark({
@@ -13,7 +11,7 @@ export function LogoMark({
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 64"
+      viewBox="8 8 48 48"
       role="img"
       aria-label="Soroscan"
       className={className}
@@ -39,25 +37,5 @@ export function LogoMark({
         fill={STAR_GOLD}
       />
     </svg>
-  );
-}
-
-export function Logo({
-  size = 28,
-  className,
-}: {
-  size?: number;
-  className?: string;
-}) {
-  return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
-      <LogoMark size={size} />
-      <span
-        className="font-bold tracking-tight"
-        style={{ fontSize: size * 0.75 }}
-      >
-        soroscan
-      </span>
-    </span>
   );
 }

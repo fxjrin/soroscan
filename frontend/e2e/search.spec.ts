@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { blockLiveHosts } from "./hermetic";
 
 const G = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI";
 const HASH = "a2b4c6d8e0a2b4c6d8e0a2b4c6d8e0a2b4c6d8e0a2b4c6d8e0a2b4c6d8e0a2b4";
 
 test.beforeEach(async ({ page }) => {
-  await page.route("https://**", (route) => route.abort());
+  await blockLiveHosts(page);
 });
 
 test("search routes a G address to the account page", async ({ page }) => {

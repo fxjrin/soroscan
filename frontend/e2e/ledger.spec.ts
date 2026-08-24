@@ -1,4 +1,5 @@
 import { expect, test, type Route } from "@playwright/test";
+import { blockLiveHosts } from "./hermetic";
 
 const HORIZON = "https://horizon.stellar.org/**";
 const HORIZON_FALLBACK = "https://horizon.stellar.lobstr.co/**";
@@ -38,7 +39,7 @@ function healthRoute(latestLedger: () => number) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route("https://**", (route) => route.abort());
+  await blockLiveHosts(page);
 });
 
 test("renders a closed ledger from horizon", async ({ page }) => {

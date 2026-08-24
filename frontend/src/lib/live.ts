@@ -23,9 +23,17 @@ export function mergeRecords<T>(
   if (incoming.length === 0) {
     return existing;
   }
-  const seen = new Set(incoming.map(keyOf));
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+  for (const record of incoming) {
+    const key = keyOf(record);
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(record); // a re-delivering stream may repeat keys within one batch
+    }
+  }
   return [
-    ...incoming,
+    ...deduped,
     ...existing.filter((record) => !seen.has(keyOf(record))),
   ].slice(0, cap);
 }
@@ -42,7 +50,7 @@ export function averageCloseSeconds(closedAts: string[]): number | undefined {
   return Math.round(total / (times.length - 1) / 100) / 10;
 }
 
-const FLUSH_MS = 500; // batch stream events so a busy ledger paints once, not 200 times
+const FLUSH_MS = 300; // batch stream events so a busy ledger paints once, not 200 times
 const PAUSED_POLL_MS = 15000;
 const STALE_GAP_MS = 60000;
 const MAX_STREAM_ERRORS = 4;
