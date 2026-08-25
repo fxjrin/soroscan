@@ -3,9 +3,11 @@ import {
   fetchLatestLedgers,
   fetchLatestOperations,
   fetchLatestTransactions,
+  fetchLedger,
+  fetchTransaction,
+  fetchTransactionEffects,
   fetchTransactionOperations,
-  horizonGet,
-  type LedgerRecord,
+  NotFoundError,
 } from "@/lib/horizon/client";
 import {
   buildActivityRows,
@@ -13,7 +15,15 @@ import {
   type ActivityRow,
 } from "@/lib/activity";
 import { chainNow } from "@/lib/clock";
-import { fetchFeeStats, fetchHealth } from "@/lib/rpc/client";
+import {
+  fetchFeeStats,
+  fetchHealth,
+  fetchRpcTransaction,
+} from "@/lib/rpc/client";
+import { decodeReturnValue } from "@/lib/tx-meta";
+import { decodeTrace, type TxTrace } from "@/lib/tx-trace";
+import { decodeXdrJson } from "@/lib/xdr-decode";
+import type { ScDisplay } from "@/lib/scval";
 import type { NetworkId } from "@/lib/network";
 
 export const queryClient = new QueryClient({
@@ -83,13 +93,7 @@ export function feeStatsQuery(network: NetworkId) {
 export function ledgerQuery(network: NetworkId, sequence: string) {
   return queryOptions({
     queryKey: [network, "horizon", "ledger", sequence],
-    queryFn: ({ signal }) =>
-      horizonGet<LedgerRecord>(
-        network,
-        `/ledgers/${sequence}`,
-        undefined,
-        signal,
-      ),
+    queryFn: ({ signal }) => fetchLedger(network, sequence, signal),
     staleTime: Infinity, // a closed ledger is immutable
   });
 }
@@ -145,6 +149,98 @@ export function latestActivityQuery(network: NetworkId, limit: number) {
     refetchInterval: (query) =>
       query.state.status === "error" ? ERROR_BACKOFF_MS : LEDGER_CLOSE_MS,
     staleTime: LEDGER_CLOSE_MS - 1000,
+  });
+}
+
+export function txQuery(network: NetworkId, hash: string) {
+  return queryOptions({
+    queryKey: [network, "horizon", "tx", hash],
+    queryFn: ({ signal }) => fetchTransaction(network, hash, signal),
+    staleTime: Infinity, // a confirmed transaction is immutable
+    // a just-submitted transaction reaches Horizon within seconds; keep
+    // looking while the page is open instead of leaving a stale 404
+    refetchInterval: (query) =>
+      query.state.error instanceof NotFoundError ? 10_000 : false,
+  });
+}
+
+export function txOperationsQuery(network: NetworkId, hash: string) {
+  return queryOptions({
+    queryKey: [network, "horizon", "tx", hash, "operations"],
+    queryFn: ({ signal }) =>
+      fetchTransactionOperations(network, hash, 200, signal),
+    staleTime: Infinity,
+  });
+}
+
+export interface SorobanDetails {
+  returnValue: ScDisplay | null;
+  trace: TxTrace | null;
+}
+
+// return value and call trace both live in the transaction meta, which
+// Horizon no longer serves; one RPC fetch covers both, and for meta
+// outside the retention window the trace falls back to the envelope
+export function txSorobanQuery(
+  network: NetworkId,
+  hash: string,
+  envelopeXdr?: string,
+) {
+  return queryOptions({
+    queryKey: [network, "rpc", "tx", hash, "soroban"],
+    queryFn: async ({ signal }): Promise<SorobanDetails> => {
+      const tx = await fetchRpcTransaction(network, hash, signal);
+      const metaXdr = tx.status === "NOT_FOUND" ? undefined : tx.resultMetaXdr;
+      const returnValue =
+        tx.status === "SUCCESS" && metaXdr !== undefined
+          ? await decodeReturnValue(metaXdr)
+          : undefined;
+      const trace = await decodeTrace(metaXdr, envelopeXdr);
+      return { returnValue: returnValue ?? null, trace: trace ?? null };
+    },
+    staleTime: Infinity, // a confirmed transaction's meta is immutable
+  });
+}
+
+export interface DecodedXdr {
+  envelope: unknown;
+  result: unknown;
+  feeMeta: unknown;
+}
+
+// a confirmed transaction never changes, so its decoded form is worth
+// keeping once the xdr chunk has been paid for
+export function txDecodedXdrQuery(
+  network: NetworkId,
+  hash: string,
+  blobs: { envelope?: string; result?: string; feeMeta?: string },
+) {
+  return queryOptions({
+    queryKey: [network, "xdr", "decoded", hash],
+    queryFn: async (): Promise<DecodedXdr> => ({
+      envelope:
+        blobs.envelope === undefined
+          ? undefined
+          : await decodeXdrJson(blobs.envelope, "TransactionEnvelope"),
+      result:
+        blobs.result === undefined
+          ? undefined
+          : await decodeXdrJson(blobs.result, "TransactionResult"),
+      feeMeta:
+        blobs.feeMeta === undefined
+          ? undefined
+          : await decodeXdrJson(blobs.feeMeta, "LedgerEntryChanges"),
+    }),
+    staleTime: Infinity,
+  });
+}
+
+export function txEffectsQuery(network: NetworkId, hash: string) {
+  return queryOptions({
+    queryKey: [network, "horizon", "tx", hash, "effects"],
+    queryFn: ({ signal }) =>
+      fetchTransactionEffects(network, hash, 200, signal),
+    staleTime: Infinity,
   });
 }
 

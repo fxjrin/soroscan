@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import {
-  ArrowDown,
-  ArrowDownUp,
-  ArrowRightLeft,
-  FileCode2,
-  Layers,
-  Settings2,
-  UserRound,
-} from "lucide-react";
+import { ArrowDown, Layers } from "lucide-react";
 import { Address } from "@/components/address";
 import { CopyButton } from "@/components/copy-button";
 import { AssetIcon } from "@/components/asset-icon";
@@ -36,7 +28,7 @@ import {
 } from "@/lib/live";
 import { ACTIVE_NETWORK, appPath } from "@/lib/network";
 import { feeStatsQuery, healthQuery, latestActivityQuery } from "@/lib/queries";
-import type { OpFamily } from "@/lib/activity";
+import { FunctionChip, OpTag, StatusChip } from "@/components/op-tag";
 import { chainNow } from "@/lib/clock";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -75,12 +67,10 @@ function throughput(records: LedgerRecord[]): string | undefined {
 
 function LiveDot({ status }: { status: StreamStatus }) {
   if (status === "paused") {
-    return (
-      <span className="text-xs text-muted-foreground">live updates paused</span>
-    );
+    return <span className="text-muted-foreground">live updates paused</span>;
   }
   return (
-    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <span className="flex items-center gap-1.5 text-muted-foreground">
       <span
         className={
           status === "live"
@@ -107,15 +97,11 @@ function Stat({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="font-mono text-xl font-bold leading-none tabular-nums">
-        {value}
-      </div>
+      <div className="font-mono text-xl font-bold leading-none">{value}</div>
       {sub ? (
-        <div className="font-mono text-xs tabular-nums text-muted-foreground">
-          {sub}
-        </div>
+        <div className="font-mono text-muted-foreground">{sub}</div>
       ) : null}
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
         {label}
         {hint ? <InfoHint>{hint}</InfoHint> : null}
       </div>
@@ -134,7 +120,7 @@ function FeedNotice({
     <div
       role="status"
       className={cn(
-        "flex items-center justify-center text-sm text-muted-foreground",
+        "flex items-center justify-center text-muted-foreground",
         height,
       )}
     >
@@ -143,43 +129,75 @@ function FeedNotice({
   );
 }
 
-const FAMILY_ICONS: Record<OpFamily, typeof ArrowRightLeft> = {
-  transfer: ArrowRightLeft,
-  contract: ArrowRightLeft,
-  dex: ArrowDownUp,
-  config: Settings2,
-  other: ArrowRightLeft,
-};
-
-// C and M addresses are executable or muxed targets, G is a person's key
-function entityIconFor(address: string) {
-  return address.startsWith("G") ? UserRound : FileCode2;
+// the feeds hold their height while they load, so the placeholder repeats
+// the same card and row geometry the real lists use
+// the stat sits at text-xl with no leading, so its placeholder is the same
+// 20px tall and the label below it never moves when the number arrives
+function StatPlaceholder({ className }: { className?: string }) {
+  return <Skeleton className={cn("h-5 w-16", className)} />;
 }
 
-const TAG_STYLES: Record<OpFamily, string> = {
-  transfer: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  contract: "bg-sky-500/10 text-sky-700 dark:text-sky-400",
-  dex: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
-  config: "bg-muted text-muted-foreground",
-  other: "bg-muted text-muted-foreground",
-};
-
-function OpTag({
-  family,
-  children,
-}: {
-  family: OpFamily;
-  children: React.ReactNode;
-}) {
+function ChartSkeleton() {
   return (
-    <span
-      className={cn(
-        "shrink-0 rounded-[3px] px-1.5 py-0.5 text-[11px] font-medium leading-none",
-        TAG_STYLES[family],
-      )}
-    >
-      {children}
-    </span>
+    <div aria-hidden="true">
+      <Skeleton className="h-[92px] w-full" />
+      <div className="mt-1 flex justify-between">
+        <Skeleton className="h-4 w-10" />
+        <Skeleton className="h-4 w-10" />
+      </div>
+    </div>
+  );
+}
+
+function LedgerListSkeleton() {
+  return (
+    <ul className="h-[37rem] overflow-hidden" aria-hidden="true">
+      {Array.from({ length: LEDGER_ROWS }, (_, index) => (
+        <li key={index} className="mb-2 h-28 last:mb-0">
+          <div className="flex h-full flex-col justify-between p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="size-4 rounded-sm" />
+                <Skeleton className="h-5 w-24" />
+              </div>
+              <Skeleton className="h-5 w-16" />
+            </div>
+            {["w-20", "w-14", "w-24"].map((width) => (
+              <div key={width} className="grid grid-cols-[3rem_1fr] gap-y-0.5">
+                <Skeleton className="h-4 w-10" />
+                <Skeleton className={cn("h-4", width)} />
+              </div>
+            ))}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TxListSkeleton() {
+  return (
+    <ul className="h-[38rem] overflow-hidden" aria-hidden="true">
+      {Array.from({ length: TX_ROWS }, (_, index) => (
+        <li
+          key={index}
+          className="grid h-[4.75rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/50 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_auto] md:gap-4 lg:gap-6"
+        >
+          <span className="flex min-w-0 flex-col gap-1.5">
+            <Skeleton className="h-6 w-28 rounded-sm" />
+            <Skeleton className="h-5 w-44" />
+          </span>
+          <span className="hidden min-w-0 flex-col gap-1.5 md:flex">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-5 w-32" />
+          </span>
+          <span className="flex flex-col items-end gap-1.5">
+            <Skeleton className="h-5 w-20" />
+            <Skeleton className="h-5 w-24" />
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -271,16 +289,16 @@ export function HomePage() {
             soroscan
           </h1>
         </div>
-        <p className="text-base text-muted-foreground">
+        <p className="text-muted-foreground">
           See what's happening on Stellar.
         </p>
         <SearchBox className="w-full" />
-        <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground">
           <span className="whitespace-nowrap">pre-alpha</span>
           {head ? (
             <>
               <span aria-hidden="true">{"\u00b7"}</span>
-              <span className="flex items-center gap-1 whitespace-nowrap font-mono tabular-nums">
+              <span className="flex items-center gap-1 whitespace-nowrap font-mono">
                 Protocol {head.protocol_version}
                 <InfoHint>
                   The network rule-set version, upgraded by validator vote.
@@ -329,7 +347,7 @@ export function HomePage() {
                       value={Number(displaySeq).toLocaleString("en-US")}
                     />
                   ) : (
-                    "..."
+                    <StatPlaceholder className="w-28" />
                   )
                 }
                 hint="A ledger is Stellar's block: every ~5 seconds the network agrees on a batch of transactions and seals it. The gold ring restarts on every new ledger and fills while waiting for the next one."
@@ -341,7 +359,7 @@ export function HomePage() {
                 closeSeconds !== undefined ? (
                   <PopNumber value={`${closeSeconds}s`} />
                 ) : (
-                  "..."
+                  <StatPlaceholder className="w-14" />
                 )
               }
               hint="How long the network is currently taking to seal each ledger, averaged over the last few."
@@ -351,9 +369,11 @@ export function HomePage() {
             <Stat
               label="Median inclusion fee"
               value={
-                fees.isSuccess
-                  ? `${formatAmount(fees.data.inclusionFee.p50)} XLM`
-                  : "..."
+                fees.isSuccess ? (
+                  `${formatAmount(fees.data.inclusionFee.p50)} XLM`
+                ) : (
+                  <StatPlaceholder className="w-24" />
+                )
               }
               sub={
                 fees.isSuccess
@@ -364,20 +384,20 @@ export function HomePage() {
             />
             <Stat
               label="Transactions per second"
-              value={tps ? <PopNumber value={tps} /> : "..."}
+              value={tps ? <PopNumber value={tps} /> : <StatPlaceholder />}
               hint="Throughput over the last ~5 minutes, counting failed transactions too since they still occupy the network."
             />
           </div>
           <div className="lg:ps-6">
             <div className="mb-1 flex items-baseline justify-between">
-              <span className="flex items-center gap-1.5 text-xs font-medium">
+              <span className="flex items-center gap-1.5 font-medium">
                 Transactions per ledger
                 <InfoHint>
                   Each point is one ledger; the height is how many transactions
                   it carried. Hover to inspect a ledger.
                 </InfoHint>
               </span>
-              <span className="text-xs tabular-nums text-muted-foreground">
+              <span className="text-muted-foreground">
                 last ~5 min{peak !== undefined ? ` \u00b7 peak ${peak}` : ""}
               </span>
             </div>
@@ -386,7 +406,7 @@ export function HomePage() {
                 <TxActivityChart records={ledgers.records} />
               </div>
             ) : (
-              <Skeleton className="h-[112px] w-full" />
+              <ChartSkeleton />
             )}
           </div>
         </CardContent>
@@ -413,7 +433,7 @@ export function HomePage() {
                   Unable to load ledgers. Retrying automatically.
                 </FeedNotice>
               ) : (
-                <Skeleton className="h-[37rem] w-full" />
+                <LedgerListSkeleton />
               )
             ) : (
               <ul className="h-[37rem] overflow-hidden">
@@ -439,18 +459,18 @@ export function HomePage() {
                             />
                             <Link
                               to={appPath(`/ledger/${ledger.sequence}`)}
-                              className="font-mono font-medium tabular-nums underline-offset-4 hover:underline"
+                              className="font-mono font-medium text-link transition-colors hover:text-link-hover"
                             >
                               {Number(ledger.sequence).toLocaleString("en-US")}
                             </Link>
                           </span>
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                          <span className="font-mono text-muted-foreground">
                             {formatAgo(ledger.closed_at, now)}
                           </span>
                         </div>
-                        <dl className="grid grid-cols-[3rem_1fr] gap-y-0.5 text-xs">
+                        <dl className="grid grid-cols-[3rem_1fr] gap-y-0.5">
                           <dt className="text-muted-foreground">Txn</dt>
-                          <dd className="font-mono tabular-nums">
+                          <dd className="font-mono">
                             {ledger.successful_transaction_count}
                             {ledger.failed_transaction_count > 0 ? (
                               <span className="text-red-600 dark:text-red-400">
@@ -460,11 +480,11 @@ export function HomePage() {
                             ) : null}
                           </dd>
                           <dt className="text-muted-foreground">Ops</dt>
-                          <dd className="font-mono tabular-nums">
+                          <dd className="font-mono">
                             {ledger.operation_count}
                           </dd>
                           <dt className="text-muted-foreground">Burned</dt>
-                          <dd className="font-mono tabular-nums">
+                          <dd className="font-mono">
                             {(() => {
                               const burned = subtractDecimalStrings(
                                 ledger.fee_pool ?? "",
@@ -486,7 +506,7 @@ export function HomePage() {
 
         <Card className="flat">
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <h2 className="text-base font-semibold leading-none">
+            <h2 className="text-lg font-semibold leading-none">
               Latest transactions
             </h2>
             <LiveDot status={txStatus} />
@@ -498,14 +518,14 @@ export function HomePage() {
                   Unable to load transactions. Retrying automatically.
                 </FeedNotice>
               ) : (
-                <Skeleton className="h-[38rem] w-full" />
+                <TxListSkeleton />
               )
             ) : (
               <ul className="h-[38rem] overflow-hidden">
                 {latestTxs.map((row, index) => (
                   <li
                     key={row.tx.paging_token}
-                    className="tx-row-in grid h-[4.75rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/50 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_auto] md:gap-4 lg:gap-6"
+                    className="tx-row-in grid h-[4.75rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/50 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_auto] md:gap-4 lg:gap-6"
                     style={{
                       animationDelay: `calc(${index} * var(--duration-stagger))`,
                     }}
@@ -516,35 +536,23 @@ export function HomePage() {
                           {row.op?.label ?? "Transaction"}
                         </OpTag>
                         {row.op?.detail ? (
-                          <span className="hidden truncate font-mono text-[11px] text-muted-foreground sm:inline">
-                            # {row.op.detail}
+                          <span className="hidden min-w-0 sm:flex">
+                            <FunctionChip name={row.op.detail} />
                           </span>
                         ) : null}
                         {row.tx.operation_count > 1 ? (
-                          <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                          <span className="hidden text-muted-foreground sm:inline">
                             +{row.tx.operation_count - 1} more
                           </span>
                         ) : null}
                         {row.tx.successful ? null : (
-                          <span className="text-[11px] font-medium text-red-600 dark:text-red-400">
-                            failed
-                          </span>
+                          <StatusChip successful={false} />
                         )}
                       </span>
                       <span className="flex items-center gap-1.5">
-                        {(() => {
-                          const FamilyIcon =
-                            FAMILY_ICONS[row.op?.family ?? "other"];
-                          return (
-                            <FamilyIcon
-                              className="size-3.5 shrink-0 text-muted-foreground"
-                              aria-hidden="true"
-                            />
-                          );
-                        })()}
                         <Link
                           to={appPath(`/tx/${row.tx.hash}`)}
-                          className="truncate font-mono font-medium underline-offset-4 hover:underline"
+                          className="truncate font-mono font-medium text-link transition-colors hover:text-link-hover"
                         >
                           <span className="sm:hidden">
                             {row.tx.hash.slice(0, 4)}...{row.tx.hash.slice(-4)}
@@ -558,7 +566,7 @@ export function HomePage() {
                           value={row.tx.hash}
                           label="Copy transaction hash"
                         />
-                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                        <span className="shrink-0 font-mono text-muted-foreground">
                           {formatAgo(row.tx.created_at, now)}
                         </span>
                       </span>
@@ -578,21 +586,17 @@ export function HomePage() {
                         )}
                         <Address
                           value={row.op?.from ?? row.tx.source_account}
-                          className="text-xs"
                         />
                       </span>
                       {row.op?.to ? (
                         <span className="flex min-w-0 items-center gap-2">
-                          {(() => {
-                            const EntityIcon = entityIconFor(row.op.to);
-                            return (
-                              <EntityIcon
-                                className="size-3.5 shrink-0 text-muted-foreground/60"
-                                aria-hidden="true"
-                              />
-                            );
-                          })()}
-                          <Address value={row.op.to} className="text-xs" />
+                          {/* holds the arrow's column so both addresses
+                              start on the same x */}
+                          <span
+                            className="size-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <Address value={row.op.to} />
                         </span>
                       ) : row.op?.toHint ? (
                         <span className="flex min-w-0 items-center gap-2">
@@ -600,41 +604,39 @@ export function HomePage() {
                             className="size-3.5 shrink-0"
                             aria-hidden="true"
                           />
-                          <span className="text-xs leading-[18px]">
-                            {row.op.toHint}
-                          </span>
+                          <span>{row.op.toHint}</span>
                         </span>
                       ) : null}
                     </span>
                     <span className="flex flex-col items-end gap-1 sm:min-w-[8.5rem]">
                       {row.op?.amount ? (
-                        <span className="flex items-center gap-1.5 font-mono text-sm tabular-nums">
+                        <span className="flex items-center gap-1.5 font-mono">
                           {row.op.assetCode ? (
                             <AssetIcon code={row.op.assetCode} size={14} />
                           ) : null}
                           {formatDecimalDisplay(row.op.amount)}
                           {row.op.assetCode ? (
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-muted-foreground">
                               {row.op.assetCode}
                             </span>
                           ) : null}
                         </span>
                       ) : row.op?.assetCode ? (
-                        <span className="flex items-center gap-1.5 font-mono text-sm">
+                        <span className="flex items-center gap-1.5 font-mono">
                           <AssetIcon code={row.op.assetCode} size={14} />
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-muted-foreground">
                             {row.op.assetCode}
                           </span>
                         </span>
                       ) : (
                         <span
-                          className="text-sm leading-5 text-muted-foreground/50"
+                          className="text-muted-foreground/50"
                           aria-hidden="true"
                         >
                           -
                         </span>
                       )}
-                      <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                      <span className="flex items-center gap-1 text-muted-foreground">
                         Fee
                         <span className="font-mono">
                           {formatXlmDisplay(row.tx.fee_charged)}

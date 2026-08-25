@@ -2,36 +2,53 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import { Address } from "@/components/address";
+import { EntityShell, Row } from "@/features/entity-shell";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EntityShell } from "@/features/entity-shell";
+import { cn } from "@/lib/utils";
 import { InvalidEntity } from "@/features/invalid-entity";
+import { formatAgo, formatTimestamp } from "@/lib/format";
 import { NotFoundError } from "@/lib/horizon/client";
 import { ACTIVE_NETWORK } from "@/lib/network";
 import { healthQuery, ledgerQuery } from "@/lib/queries";
 import { classifySearch } from "@/lib/search";
+import { useNow } from "@/lib/use-now";
 
 const MAX_LEDGER_SEQUENCE = 4294967295; // u32, per the ledger header
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+// every row a closed ledger has is known up front, so the placeholder is
+// the same list with bars where the values will be
+function ValueBar({ className }: { className?: string }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-1.5">
-      <dt className="w-28 shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="font-mono tabular-nums">{children}</dd>
-    </div>
+    <span className="flex h-[1lh] items-center">
+      <Skeleton className={cn("h-5", className)} />
+    </span>
   );
 }
 
-function LoadingRows() {
+function LedgerSkeleton() {
   return (
-    <div className="flex flex-col gap-2">
-      <Skeleton className="h-5 w-64" />
-      <Skeleton className="h-5 w-48" />
-      <Skeleton className="h-5 w-56" />
-    </div>
+    <dl>
+      <Row label="Closed at">
+        <ValueBar className="w-64" />
+      </Row>
+      <Row label="Transactions">
+        <ValueBar className="w-48" />
+      </Row>
+      <Row label="Operations">
+        <ValueBar className="w-10" />
+      </Row>
+      <Row label="Protocol">
+        <ValueBar className="w-8" />
+      </Row>
+      <Row label="Hash">
+        <ValueBar className="w-full max-w-[34rem]" />
+      </Row>
+    </dl>
   );
 }
 
 export function LedgerPage() {
+  const now = useNow();
   const { sequence = "" } = useParams();
   const target = classifySearch(sequence);
   const valid =
@@ -71,11 +88,16 @@ export function LedgerPage() {
 
   let body: ReactNode;
   if (ledger.isPending || (notFound && ledger.isFetching)) {
-    body = <LoadingRows />;
+    body = <LedgerSkeleton />;
   } else if (ledger.isSuccess) {
     body = (
       <dl>
-        <Row label="Closed at">{ledger.data.closed_at}</Row>
+        <Row label="Closed at">
+          {formatAgo(ledger.data.closed_at, now)}{" "}
+          <span className="text-muted-foreground">
+            {formatTimestamp(ledger.data.closed_at)}
+          </span>
+        </Row>
         <Row label="Transactions">
           {ledger.data.successful_transaction_count} succeeded,{" "}
           {ledger.data.failed_transaction_count} failed
@@ -89,15 +111,12 @@ export function LedgerPage() {
     );
   } else if (notFound) {
     if (latest === undefined) {
-      body = <LoadingRows />;
+      body = <LedgerSkeleton />;
     } else if (seq > latest) {
       body = (
         <p className="text-muted-foreground">
           This ledger has not closed yet; the network is currently at ledger{" "}
-          <span className="font-mono tabular-nums">
-            {latest.toLocaleString("en-US")}
-          </span>
-          .
+          <span className="font-mono">{latest.toLocaleString("en-US")}</span>.
         </p>
       );
     } else {
@@ -118,9 +137,7 @@ export function LedgerPage() {
   return (
     <EntityShell
       title="Ledger"
-      identifier={
-        <span className="font-mono tabular-nums">{target.value}</span>
-      }
+      identifier={<span className="font-mono">{target.value}</span>}
     >
       {body}
     </EntityShell>

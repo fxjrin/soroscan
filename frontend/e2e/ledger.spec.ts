@@ -48,7 +48,7 @@ test("renders a closed ledger from horizon", async ({ page }) => {
   await page.goto("/ledger/64000000");
 
   await expect(page.getByText("185 succeeded, 30 failed")).toBeVisible();
-  await expect(page.getByText("2026-08-18T10:00:00Z")).toBeVisible();
+  await expect(page.getByText("Aug 18, 2026, 10:00:00 UTC")).toBeVisible();
   await expect(page.getByText("b1c2...b1c2")).toBeVisible();
 });
 

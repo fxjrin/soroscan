@@ -121,18 +121,15 @@ export function TxActivityChart({ records }: { records: LedgerRecord[] }) {
                 top: "-8px",
               }}
             >
-              <div className="tabular-nums">
-                {active.sequence.toLocaleString("en-US")}
-              </div>
+              <div>{active.sequence.toLocaleString("en-US")}</div>
               <div className="text-muted-foreground">
-                <span className="tabular-nums">{active.txs}</span> tx {"\u00b7"}{" "}
-                {active.time}
+                <span>{active.txs}</span> tx {"\u00b7"} {active.time}
               </div>
             </div>
           </>
         ) : null}
       </div>
-      <div className="mt-1 flex justify-between font-mono text-[10px] tabular-nums text-muted-foreground">
+      <div className="mt-1 flex justify-between font-mono text-xs text-muted-foreground">
         <span>{points[0].time.slice(0, 5)}</span>
         <span>{last.time.slice(0, 5)}</span>
       </div>

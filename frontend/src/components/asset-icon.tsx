@@ -38,12 +38,16 @@ export function AssetIcon({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-[2px] text-[8px] font-bold text-white",
+        "flex shrink-0 items-center justify-center rounded-[2px] font-bold text-white",
         className,
       )}
       style={{
         width: size,
         height: size,
+        // a glyph drawn inside the chip, so it scales with the chip
+        // rather than sitting on the text scale
+        fontSize: Math.round(size * 0.5),
+        lineHeight: 1,
         background: `hsl(${hueOf(code)} 55% 45%)`,
       }}
       aria-hidden="true"

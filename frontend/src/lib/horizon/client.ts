@@ -62,6 +62,35 @@ export interface TxRecord {
   fee_charged: string;
 }
 
+function isLedger(body: unknown): body is LedgerRecord {
+  const ledger = body as LedgerRecord | null;
+  return (
+    typeof ledger === "object" &&
+    ledger !== null &&
+    typeof ledger.hash === "string" &&
+    typeof ledger.closed_at === "string" &&
+    typeof ledger.sequence === "number"
+  );
+}
+
+/** The caller must validate the sequence shape before interpolating it. */
+export async function fetchLedger(
+  network: NetworkId,
+  sequence: string,
+  signal?: AbortSignal,
+): Promise<LedgerRecord> {
+  const ledger = await horizonGet<unknown>(
+    network,
+    `/ledgers/${sequence}`,
+    undefined,
+    signal,
+  );
+  if (!isLedger(ledger)) {
+    throw new UpstreamError(`ledger ${sequence}: malformed response body`);
+  }
+  return ledger;
+}
+
 export function fetchLatestLedgers(
   network: NetworkId,
   limit: number,
@@ -124,6 +153,86 @@ export function fetchLatestOperations(
     { order: "desc", limit, include_failed: "true" },
     signal,
   );
+}
+
+// the detail view needs more of the record than the feed does
+export interface TxDetailRecord extends TxRecord {
+  ledger: number;
+  max_fee: string;
+  memo_type: string;
+  memo?: string;
+  source_account_sequence: string;
+  fee_account?: string;
+  signatures?: string[];
+  envelope_xdr?: string;
+  result_xdr?: string;
+  fee_meta_xdr?: string;
+}
+
+// effects are horizon's decoded balance movements for a transaction
+export interface EffectRecord {
+  id: string;
+  type: string;
+  account?: string;
+  amount?: string;
+  asset_type?: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  /** set on contract effects: the balance that moved belongs to this contract */
+  contract?: string;
+  _links?: { operation?: { href?: string } };
+}
+
+export function fetchTransactionEffects(
+  network: NetworkId,
+  hash: string,
+  limit: number,
+  signal?: AbortSignal,
+) {
+  return horizonGet<HorizonPage<EffectRecord>>(
+    network,
+    `/transactions/${hash}/effects`,
+    { order: "asc", limit },
+    signal,
+  );
+}
+
+// the detail page renders these fields without further guarding, so a
+// body missing them has to fail the query here rather than reach the
+// page and throw from inside a formatter
+function isTxDetail(body: unknown): body is TxDetailRecord {
+  const tx = body as TxDetailRecord | null;
+  return (
+    typeof tx === "object" &&
+    tx !== null &&
+    typeof tx.hash === "string" &&
+    typeof tx.successful === "boolean" &&
+    typeof tx.source_account === "string" &&
+    typeof tx.source_account_sequence === "string" &&
+    typeof tx.created_at === "string" &&
+    typeof tx.fee_charged === "string" &&
+    typeof tx.max_fee === "string" &&
+    typeof tx.memo_type === "string" &&
+    typeof tx.operation_count === "number"
+  );
+}
+
+/** The caller must validate the hash shape before interpolating it. */
+export async function fetchTransaction(
+  network: NetworkId,
+  hash: string,
+  signal?: AbortSignal,
+): Promise<TxDetailRecord> {
+  const tx = await horizonGet<unknown>(
+    network,
+    `/transactions/${hash}`,
+    undefined,
+    signal,
+  );
+  if (!isTxDetail(tx)) {
+    throw new UpstreamError(`transaction ${hash}: malformed response body`);
+  }
+  return tx;
 }
 
 export function fetchTransactionOperations(

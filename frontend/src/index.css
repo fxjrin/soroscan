@@ -33,6 +33,8 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -48,6 +50,13 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* the app runs on one text size, so its line-height is set on the scale
+   itself: body inherits it, and every text-sm utility, including the ones
+   inside generated components, resolves to the same rhythm */
+@theme {
+  --text-sm--line-height: 1.5;
+}
+
 :root {
   --background: #fafafa;
   --foreground: #18181b;
@@ -56,6 +65,10 @@
   --popover: #ffffff;
   --popover-foreground: #18181b;
   --primary: #9c7100;
+  /* the link blue proven across light and dark product UIs; both themes
+     share hue 212 and clear AA on the page, card, and muted surfaces */
+  --link: #0969da;
+  --link-hover: #0550ae;
   --primary-foreground: #fffbeb;
   --secondary: #f4f4f5;
   --secondary-foreground: #27272a;
@@ -91,6 +104,8 @@
   --popover: #131316;
   --popover-foreground: #f4f4f5;
   --primary: #f5c84c;
+  --link: #58a6ff;
+  --link-hover: #79c0ff;
   --primary-foreground: #1c1400;
   --secondary: #27272a;
   --secondary-foreground: #e4e4e7;
@@ -310,6 +325,33 @@
   animation: live-dot 2s ease-in-out infinite;
 }
 
+/* hovering one address marks every other place the same entity appears.
+   outline rather than border or padding: the mark must not move a single
+   character of the dense rows it lands in */
+/* the line box already leaves room above the caps and below the baseline,
+   so only the sides need padding to make the mark look evenly inset. The
+   negative margin hands that width back, keeping every row exactly as
+   wide as it was before the mark existed */
+[data-address] {
+  padding-inline: 4px;
+  margin-inline: -4px;
+  border-radius: var(--radius-sm);
+  outline: 1px dashed transparent;
+  transition:
+    background-color 120ms ease,
+    outline-color 120ms ease;
+}
+[data-address][data-match] {
+  background-color: color-mix(in oklab, var(--primary) 16%, transparent);
+  outline-color: color-mix(in oklab, var(--primary) 55%, transparent);
+}
+
+/* a folded json branch stands in for its contents with a count, so the
+   reader can collapse a subtree and still see how much is inside */
+.json-branch[open] > summary .json-folded {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .t-digit-group .t-digit,
   .tx-row-in,
@@ -320,6 +362,9 @@
   .ring-pop {
     animation: none !important;
   }
+  [data-address] {
+    transition: none;
+  }
 }
 
 @layer base {
@@ -329,6 +374,14 @@
   body {
     @apply antialiased;
     @apply bg-background text-foreground;
+    /* one size for every piece of text in the app, set here so nothing
+       has to restate it; only headings step up and the chip layer
+       (tags, badges, keycaps) steps down to text-xs */
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    /* chain data is numbers: fixed-width digits keep columns and ticking
+       counters from shifting as values change */
+    font-variant-numeric: tabular-nums;
   }
   html {
     @apply font-sans;

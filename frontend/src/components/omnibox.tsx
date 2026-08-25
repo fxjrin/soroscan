@@ -137,7 +137,8 @@ export function Omnibox({
           value={query}
           onValueChange={setQuery}
           placeholder="Account, contract, tx hash, or ledger sequence"
-          className="h-12 font-mono text-base"
+          // iOS Safari zooms the page when an input renders below 16px
+          className="h-12 font-mono text-base sm:text-sm"
         />
         <CommandList className="max-h-[420px]">
           {query.trim().length > 0 ? (
@@ -184,14 +185,14 @@ export function Omnibox({
               {SEARCH_KINDS.map((kind) => (
                 <div
                   key={kind.name}
-                  className="flex items-center gap-3 px-3 py-2 text-sm"
+                  className="flex items-center gap-3 px-3 py-2"
                 >
                   <kind.icon
                     className="size-4 shrink-0 text-muted-foreground"
                     aria-hidden="true"
                   />
                   <span className="w-24 shrink-0 font-medium">{kind.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
+                  <span className="truncate text-muted-foreground">
                     {kind.hint}
                   </span>
                 </div>
@@ -201,19 +202,19 @@ export function Omnibox({
         </CommandList>
         <div className="flex items-center gap-4 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+            <kbd className="rounded-md bg-muted px-2 py-1 font-mono text-xs">
               enter
             </kbd>
             open
           </span>
           <span className="flex items-center gap-1.5">
-            <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+            <kbd className="rounded-md bg-muted px-2 py-1 font-mono text-xs">
               esc
             </kbd>
             close
           </span>
           <span className="ml-auto flex items-center gap-1.5">
-            <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+            <kbd className="rounded-md bg-muted px-2 py-1 font-mono text-xs">
               /
             </kbd>
             from anywhere

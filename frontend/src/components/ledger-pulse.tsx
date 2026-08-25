@@ -99,7 +99,7 @@ export function LedgerPulse({
         />
       </svg>
       <span
-        className="absolute inset-0 flex items-center justify-center font-mono text-[10px] tabular-nums text-muted-foreground"
+        className="absolute inset-0 flex items-center justify-center font-mono text-xs text-muted-foreground"
         aria-hidden="true"
       >
         {Math.floor(elapsed)}s

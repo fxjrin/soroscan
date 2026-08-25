@@ -57,6 +57,33 @@ export async function rpcCall<T>(
   return body.result as T;
 }
 
+export interface RpcTransaction {
+  status: "SUCCESS" | "FAILED" | "NOT_FOUND";
+  resultMetaXdr?: string;
+}
+
+/**
+ * NOT_FOUND is a valid answer, not a provider failure: it also covers
+ * transactions older than the provider's retention window. The caller
+ * must validate the hash shape before sending it.
+ */
+export async function fetchRpcTransaction(
+  network: NetworkId,
+  hash: string,
+  signal?: AbortSignal,
+): Promise<RpcTransaction> {
+  const tx = await rpcCall<RpcTransaction>(
+    network,
+    "getTransaction",
+    { hash },
+    signal,
+  );
+  if (typeof tx?.status !== "string") {
+    throw new UpstreamError("getTransaction: malformed response body");
+  }
+  return tx;
+}
+
 interface FeePercentiles {
   max: string;
   min: string;

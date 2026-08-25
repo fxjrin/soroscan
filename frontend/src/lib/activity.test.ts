@@ -3,7 +3,7 @@ import { buildActivityRows } from "./activity";
 import type { OperationRecord, TxRecord } from "./horizon/client";
 
 const G1 = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI";
-const G2 = "GBEUJWAVFYLJZKTQTZHUPQE3PZBWSTRIRRWLIVCAJNL5FUEIIUYVJZ7F";
+const G2 = "GAEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSH7S";
 const C1 = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 // row building requires hex-64 hashes; short seeds expand deterministically
