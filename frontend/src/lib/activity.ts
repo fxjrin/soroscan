@@ -55,7 +55,7 @@ function amountOf(value: string | undefined): string | undefined {
   return value !== undefined && /^\d+(\.\d+)?$/.test(value) ? value : undefined;
 }
 
-function codeOf(
+export function assetCodeOf(
   assetType: string | undefined,
   assetCode: string | undefined,
 ): string | undefined {
@@ -67,6 +67,13 @@ function codeOf(
 }
 
 const INVOKE_CONTRACT_FN = "HostFunctionTypeHostFunctionTypeInvokeContract";
+
+/** True when the operation calls a contract function (not wasm upload or deploy). */
+export function isContractInvocation(op: OperationRecord): boolean {
+  return (
+    op.type === "invoke_host_function" && op.function === INVOKE_CONTRACT_FN
+  );
+}
 
 // horizon's own address field is empty in practice, so the invoked
 // contract and function come from the first two invocation parameters
@@ -89,7 +96,9 @@ function presentInvoke(op: OperationRecord, base: PrimaryOp): PrimaryOp {
     to,
     toHint: to === undefined ? "contract" : undefined,
     amount: amountOf(moved?.amount),
-    assetCode: moved ? codeOf(moved.asset_type, moved.asset_code) : undefined,
+    assetCode: moved
+      ? assetCodeOf(moved.asset_type, moved.asset_code)
+      : undefined,
   };
 }
 
@@ -121,7 +130,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         from: op.from,
         to: op.to,
         amount: amountOf(op.amount),
-        assetCode: codeOf(op.asset_type, op.asset_code),
+        assetCode: assetCodeOf(op.asset_type, op.asset_code),
       };
     case "create_account":
       return {
@@ -142,7 +151,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         from: op.source_account,
         toHint: "order book",
         amount: amountOf(op.amount),
-        assetCode: codeOf(op.selling_asset_type, op.selling_asset_code),
+        assetCode: assetCodeOf(op.selling_asset_type, op.selling_asset_code),
       };
     case "manage_buy_offer":
       return {
@@ -150,7 +159,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         from: op.source_account,
         toHint: "order book",
         amount: amountOf(op.amount),
-        assetCode: codeOf(op.buying_asset_type, op.buying_asset_code),
+        assetCode: assetCodeOf(op.buying_asset_type, op.buying_asset_code),
       };
     case "liquidity_pool_deposit":
     case "liquidity_pool_withdraw":
@@ -171,7 +180,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         from: op.from,
         to: op.source_account,
         amount: amountOf(op.amount),
-        assetCode: codeOf(op.asset_type, op.asset_code),
+        assetCode: assetCodeOf(op.asset_type, op.asset_code),
       };
     case "set_trust_line_flags":
     case "allow_trust":
@@ -183,7 +192,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         from: op.trustor ?? op.source_account,
         to,
         toHint: to === undefined ? "liquidity pool" : undefined,
-        assetCode: codeOf(op.asset_type, op.asset_code),
+        assetCode: assetCodeOf(op.asset_type, op.asset_code),
       };
     }
     case "extend_footprint_ttl":

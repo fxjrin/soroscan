@@ -2,7 +2,7 @@ import { expect, test, type Route } from "@playwright/test";
 import { blockLiveHosts, HORIZON_PROVIDERS, RPC_PROVIDERS } from "./hermetic";
 
 const G1 = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI";
-const G2 = "GBEUJWAVFYLJZKTQTZHUPQE3PZBWSTRIRRWLIVCAJNL5FUEIIUYVJZ7F";
+const G2 = "GAEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSH7S";
 const C1 = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 function ledger(sequence: number, closedAt: string) {
@@ -210,7 +210,7 @@ test("home shows seeded and streamed ledgers and transactions", async ({
   await expect(page.getByText("Contract call")).toBeVisible();
   await expect(page.getByText("12.5")).toBeVisible();
   await expect(page.getByText("CDLZ...CYSC")).toBeVisible();
-  await expect(page.getByText("# transfer")).toBeVisible();
+  await expect(page.getByText("transfer", { exact: true })).toBeVisible();
   await expect(page.getByText("479.25")).toBeVisible();
   await expect(page.getByText("beefbeefbe...efbeefbeef")).toBeVisible({
     timeout: 15000,

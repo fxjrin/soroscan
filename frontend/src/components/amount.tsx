@@ -11,7 +11,7 @@ interface AmountProps {
 
 export function Amount({ value, decimals = 7, code, className }: AmountProps) {
   return (
-    <span className={cn("font-mono tabular-nums", className)}>
+    <span className={cn("font-mono", className)}>
       {formatAmount(value, decimals)}
       {code ? (
         <span className="text-muted-foreground">

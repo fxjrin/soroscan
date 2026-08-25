@@ -35,7 +35,10 @@ export function CopyButton({ value, label, className }: CopyButtonProps) {
         aria-label={label}
         onClick={copy}
         className={cn(
-          "inline-flex items-center rounded-sm p-[5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
+          // the tap target is an overlay, not padding: padding here would
+          // make every line holding a copyable value taller than the text
+          // and push that text off the surrounding baseline
+          "relative inline-flex items-center rounded-sm text-muted-foreground transition-colors after:absolute after:-inset-[5px] after:content-[''] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           className,
         )}
       >

@@ -8,6 +8,7 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: "http://localhost:4173",
+    timezoneId: "UTC", // keeps rendered timestamps deterministic across machines
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

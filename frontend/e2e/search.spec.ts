@@ -46,7 +46,7 @@ test("a direct transaction URL renders the shell", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Transaction" }),
   ).toBeVisible();
-  await expect(page.getByText("a2b4...a2b4")).toBeVisible();
+  await expect(page.getByText(HASH)).toBeVisible();
 });
 
 test("direct URLs with invalid identifiers render the invalid state", async ({
@@ -76,5 +76,5 @@ test("an uppercase transaction hash URL is accepted and normalized", async ({
   await expect(
     page.getByRole("heading", { name: "Transaction" }),
   ).toBeVisible();
-  await expect(page.getByText("a2b4...a2b4")).toBeVisible();
+  await expect(page.getByText(HASH)).toBeVisible();
 });

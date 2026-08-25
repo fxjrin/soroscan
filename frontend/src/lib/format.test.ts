@@ -3,6 +3,7 @@ import {
   formatAgo,
   formatAmount,
   formatDecimalDisplay,
+  formatTimestamp,
   subtractDecimalStrings,
   formatXlmDisplay,
   sanitizeChainText,
@@ -90,4 +91,13 @@ test("formatAgo formats ages and refuses malformed timestamps", () => {
 test("amount fallthroughs sanitize hostile bytes instead of echoing them", () => {
   expect(formatAmount("\u202E9999.pay")).toBe("\uFFFD9999.pay");
   expect(formatDecimalDisplay("12,5\u202Elumens")).toBe("12,5\uFFFDlumens");
+});
+
+test("formatTimestamp renders an absolute time with its zone", () => {
+  const rendered = formatTimestamp("2026-08-24T14:53:45Z");
+
+  expect(rendered).toMatch(/Aug \d{1,2}, 2026/);
+  expect(rendered).toMatch(/\d{2}:\d{2}:\d{2}/);
+  expect(rendered).toMatch(/UTC|GMT/);
+  expect(formatTimestamp("not a date")).toBe("-");
 });

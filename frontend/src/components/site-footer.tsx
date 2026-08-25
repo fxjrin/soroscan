@@ -41,19 +41,16 @@ export function SiteFooter() {
         <div className="flex max-w-xs flex-col gap-3">
           <span className="flex items-center gap-2">
             <LogoMark size={18} />
-            <span className="-translate-y-[1px] text-sm font-semibold tracking-tight">
+            <span className="-translate-y-[1px] font-semibold tracking-tight">
               soroscan
             </span>
           </span>
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-muted-foreground">
             See what's happening on Stellar. Open source under MIT; data from
             public Horizon and Stellar RPC providers.
           </p>
         </div>
-        <nav
-          aria-label="Footer"
-          className="grid grid-cols-2 gap-x-16 gap-y-4 text-sm"
-        >
+        <nav aria-label="Footer" className="grid grid-cols-2 gap-x-16 gap-y-4">
           {LINKS.map((link) => (
             <a
               key={link.href}

@@ -41,7 +41,9 @@ function identiconKey(address: string): string | null {
  */
 export function Identicon({
   address,
-  size = 18,
+  // sits inline with body text, so it matches the text size rather than
+  // the line box; a taller chip would outweigh the address beside it
+  size = 14,
   className,
 }: {
   address: string;
@@ -63,7 +65,7 @@ export function Identicon({
   if (!dataUrl) {
     return (
       <span
-        className={cn("inline-block shrink-0 rounded-[2px]", className)}
+        className={cn("inline-block shrink-0", className)}
         style={{
           width: size,
           height: size,
@@ -81,7 +83,7 @@ export function Identicon({
       height={size}
       alt=""
       aria-hidden="true"
-      className={cn("shrink-0 rounded-[2px]", className)}
+      className={cn("shrink-0", className)}
       style={{ imageRendering: "pixelated" }}
     />
   );

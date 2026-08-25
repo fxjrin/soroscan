@@ -25,7 +25,7 @@ function NetworkChip() {
         <a
           href={networkToggleUrl(window.location)}
           aria-label="Switch network"
-          className="flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+          className="flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2.5 font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
         >
           <span
             className={

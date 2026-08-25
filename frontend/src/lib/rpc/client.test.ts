@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { fetchHealth, rpcCall } from "./client";
+import { fetchHealth, fetchRpcTransaction, rpcCall } from "./client";
 import { resetFailoverState, UpstreamError } from "@/lib/failover";
 
 beforeEach(() => {
@@ -83,6 +83,36 @@ test("rejects a response whose id does not match the request", async () => {
   await expect(rpcCall("testnet", "getHealth")).rejects.toThrowError(
     /id mismatch/,
   );
+});
+
+test("returns getTransaction NOT_FOUND as a valid answer", async () => {
+  const fetchMock = stubRpc((id) => ({
+    jsonrpc: "2.0",
+    id,
+    result: { status: "NOT_FOUND" },
+  }));
+
+  const tx = await fetchRpcTransaction("testnet", "beef".repeat(16));
+
+  expect(tx.status).toBe("NOT_FOUND");
+  const sent = JSON.parse(
+    String((fetchMock.mock.calls[0][1] as RequestInit).body),
+  );
+  expect(sent).toMatchObject({
+    method: "getTransaction",
+    params: { hash: "beef".repeat(16) },
+  });
+});
+
+test("rejects a malformed getTransaction body instead of returning it", async () => {
+  stubRpc((id) => ({ jsonrpc: "2.0", id, result: {} }));
+
+  const failure = await fetchRpcTransaction("testnet", "beef".repeat(16)).catch(
+    (error) => error,
+  );
+
+  expect(failure).toBeInstanceOf(UpstreamError);
+  expect(String(failure)).toMatch(/malformed/);
 });
 
 test("rejects a malformed getHealth body instead of returning it", async () => {

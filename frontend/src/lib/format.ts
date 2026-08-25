@@ -30,6 +30,28 @@ export function formatXlmDisplay(stroops: string): string {
     .replace(/\.$/, "");
 }
 
+/**
+ * Absolute chain timestamp in the reader's own timezone, with the zone
+ * spelled out so the moment is never ambiguous. Intl renders it, so the
+ * month name and separators follow the locale rather than hardcoded text.
+ */
+export function formatTimestamp(iso: string): string {
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  }).format(parsed);
+}
+
 export function formatAgo(iso: string, nowMs: number): string {
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) {
@@ -68,19 +90,29 @@ export function formatDecimalDisplay(value: string, maxFraction = 5): string {
  * decimal string, exact via BigInt. Malformed input or a negative result
  * (a provider glitch, never a real chain state) returns undefined.
  */
+/**
+ * A 7-decimal amount string as exact stroops. Anything that is not a
+ * plain unsigned decimal of that precision returns undefined rather than
+ * a silently rounded number.
+ */
+export function decimalToStroops(value: string): bigint | undefined {
+  if (!/^\d+(\.\d{1,7})?$/.test(value)) {
+    return undefined;
+  }
+  const [intPart, fraction = ""] = value.split(".");
+  return BigInt(intPart + fraction.padEnd(7, "0"));
+}
+
 export function subtractDecimalStrings(
   minuend: string,
   subtrahend: string,
 ): string | undefined {
-  const shape = /^\d+(\.\d{1,7})?$/;
-  if (!shape.test(minuend) || !shape.test(subtrahend)) {
+  const left = decimalToStroops(minuend);
+  const right = decimalToStroops(subtrahend);
+  if (left === undefined || right === undefined) {
     return undefined;
   }
-  const toStroops = (value: string) => {
-    const [intPart, fraction = ""] = value.split(".");
-    return BigInt(intPart + fraction.padEnd(7, "0"));
-  };
-  const delta = toStroops(minuend) - toStroops(subtrahend);
+  const delta = left - right;
   if (delta < 0n) {
     return undefined;
   }
