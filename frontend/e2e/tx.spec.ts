@@ -426,9 +426,11 @@ test("call tree elbows point at the first line of a wrapped row", async ({
   await page.setViewportSize({ width: 420, height: 900 });
   await page.goto(`/tx/${SOROBAN_HASH}`);
   await page.getByRole("tab", { name: "Trace" }).click();
-  // the loading skeleton carries the same section label, so the wait has to
-  // be for decoded content or the rows below are still placeholders
-  await expect(page.getByRole("tabpanel")).toContainText("harvest(");
+  // the overview also prints harvest(...), and the loading skeleton carries
+  // the same section label, so the wait is for a decoded row of the tree
+  await expect(
+    page.getByRole("tabpanel").getByRole("table").first(),
+  ).toContainText("harvest(");
 
   const rows = await page.evaluate(() =>
     [...document.querySelectorAll("td")].slice(0, 3).map((cell) => {
@@ -478,6 +480,10 @@ test("the loading rows land where the real rows will", async ({ page }) => {
     });
   }
 
+  // narrow enough that the hash wraps to two lines: a placeholder that took
+  // one line would move every row below it once the real value arrived, and
+  // a wider glyph set is enough to reach this on a machine with other fonts
+  await page.setViewportSize({ width: 700, height: 720 });
   await page.goto(`/tx/${HASH}`);
   // rows past From depend on what the transaction did, so only the ones
   // every transaction has can be compared
@@ -510,7 +516,9 @@ async function boxesOf(page: Page, labels: string[]) {
 
 test("the open tab travels in the url", async ({ page }) => {
   await page.goto(`/tx/${SOROBAN_HASH}?tab=trace`);
-  await expect(page.getByRole("tabpanel")).toContainText("harvest(");
+  await expect(
+    page.getByRole("tabpanel").getByRole("table").first(),
+  ).toContainText("harvest(");
   await expect(page.getByRole("tab", { name: "Trace 2" })).toHaveAttribute(
     "data-state",
     "active",
@@ -584,7 +592,9 @@ test("a shared tab link never shows the overview on the way", async ({
   await expect(page.getByText("Transaction hash")).toBeHidden();
 
   releaseOps();
-  await expect(page.getByRole("tabpanel")).toContainText("harvest(");
+  await expect(
+    page.getByRole("tabpanel").getByRole("table").first(),
+  ).toContainText("harvest(");
   await expect(page.getByRole("tab", { name: "Trace 2" })).toHaveAttribute(
     "data-state",
     "active",

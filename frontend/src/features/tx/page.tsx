@@ -611,11 +611,14 @@ function ValueBar({ className }: { className?: string }) {
 
 const TAB_PLACEHOLDER_WIDTHS = ["w-12", "w-10", "w-24", "w-20", "w-8", "w-16"];
 
-function DetailRowsSkeleton() {
+function DetailRowsSkeleton({ hash }: { hash: string }) {
   return (
     <dl>
+      {/* the hash comes from the url, so it is never a placeholder: a bar
+          here would also wrap to a different number of lines than the 64
+          characters that replace it, and move every row below */}
       <Row {...ROW.hash}>
-        <ValueBar className="w-full max-w-[34rem]" />
+        <Address value={hash} full />
       </Row>
       <Row {...ROW.status}>
         <span className="flex flex-wrap items-center gap-2">
@@ -667,7 +670,7 @@ function XdrSkeleton() {
   );
 }
 
-function TabBodySkeleton({ tab }: { tab: string }) {
+function TabBodySkeleton({ tab, hash }: { tab: string; hash: string }) {
   switch (tab) {
     case "trace":
       return (
@@ -697,7 +700,7 @@ function TabBodySkeleton({ tab }: { tab: string }) {
         </div>
       );
     default:
-      return <DetailRowsSkeleton />;
+      return <DetailRowsSkeleton hash={hash} />;
   }
 }
 
@@ -706,7 +709,7 @@ function TabBodySkeleton({ tab }: { tab: string }) {
  * under it the shape of whichever tab the url asked for, so a shared link
  * never loads one tab and then swaps to another.
  */
-function TxSkeleton({ tab }: { tab: string }) {
+function TxSkeleton({ tab, hash }: { tab: string; hash: string }) {
   return (
     // the real Tabs render the strip, so its height cannot drift from the
     // loaded page the way a hand-sized placeholder would
@@ -719,7 +722,7 @@ function TxSkeleton({ tab }: { tab: string }) {
         ))}
       </TabsList>
       <TabsContent value={tab} className="pt-5">
-        <TabBodySkeleton tab={tab} />
+        <TabBodySkeleton tab={tab} hash={hash} />
       </TabsContent>
     </Tabs>
   );
@@ -1321,7 +1324,7 @@ export function TxPage() {
 
   let body: ReactNode;
   if (tx.isPending) {
-    body = <TxSkeleton tab={wanted} />;
+    body = <TxSkeleton tab={wanted} hash={target.value} />;
   } else if (tx.isSuccess) {
     const primaryOp =
       firstRecord !== undefined ? presentOperation(firstRecord) : undefined;
