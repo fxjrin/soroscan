@@ -2,9 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import { Address } from "@/components/address";
-import { EntityShell, Row } from "@/features/entity-shell";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { EntityShell, Row, ValueBar } from "@/features/entity-shell";
 import { InvalidEntity } from "@/features/invalid-entity";
 import { formatAgo, formatTimestamp } from "@/lib/format";
 import { NotFoundError } from "@/lib/horizon/client";
@@ -14,16 +12,6 @@ import { classifySearch } from "@/lib/search";
 import { useNow } from "@/lib/use-now";
 
 const MAX_LEDGER_SEQUENCE = 4294967295; // u32, per the ledger header
-
-// every row a closed ledger has is known up front, so the placeholder is
-// the same list with bars where the values will be
-function ValueBar({ className }: { className?: string }) {
-  return (
-    <span className="flex h-[1lh] items-center">
-      <Skeleton className={cn("h-5", className)} />
-    </span>
-  );
-}
 
 function LedgerSkeleton() {
   return (

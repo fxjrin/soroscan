@@ -17,13 +17,16 @@ import {
   type Column,
 } from "@/components/data-table";
 import {
+  AuthTraceNote,
   CallTree,
   CallTreeSkeleton,
   EventSignature,
 } from "@/components/call-tree";
 import { JsonTree, JsonTreeSkeleton } from "@/components/json-tree";
 import { CallSignature, ScValView } from "@/components/scval-view";
-import { EntityShell, Row } from "@/features/entity-shell";
+import { ActionSummary } from "@/components/action-summary";
+import { NetChanges } from "@/components/net-changes";
+import { EntityShell, Row, ValueBar } from "@/features/entity-shell";
 import { InvalidEntity } from "@/features/invalid-entity";
 import {
   assetCodeOf,
@@ -63,78 +66,13 @@ import {
   type TraceStateChange,
   type TraceTtl,
 } from "@/lib/tx-trace";
-import {
-  balanceHolderOf,
-  netBalanceChanges,
-  operationIdOf,
-} from "@/lib/balance-changes";
+import { balanceHolderOf, operationIdOf } from "@/lib/balance-changes";
 import { classifySearch } from "@/lib/search";
 import { cn } from "@/lib/utils";
 import { useNow } from "@/lib/use-now";
 
 function SectionBreak() {
   return <div className="my-3 border-t border-border/50" aria-hidden="true" />;
-}
-
-// one human sentence for what the transaction did, blockscout-style, built
-// from the decoded primary operation; every piece is a direct flex item so
-// word gaps and vertical centering stay uniform across the sentence
-function ActionSummary({ op, opCount }: { op: PrimaryOp; opCount: number }) {
-  let action: ReactNode;
-  switch (op.type) {
-    case "payment":
-    case "path_payment_strict_send":
-    case "path_payment_strict_receive":
-      action =
-        op.amount && op.assetCode && op.to ? (
-          <>
-            <span>{`sent ${formatDecimalDisplay(op.amount)} ${op.assetCode} to`}</span>
-            <Address value={op.to} />
-          </>
-        ) : (
-          <span>sent a payment</span>
-        );
-      break;
-    case "invoke_host_function":
-      action = (
-        <>
-          <span>called</span>
-          {op.detail ? (
-            <FunctionChip name={op.detail} />
-          ) : (
-            <span className="font-mono">a function</span>
-          )}
-          <span>on</span>
-          {op.to ? <Address value={op.to} /> : <span>a contract</span>}
-        </>
-      );
-      break;
-    case "create_account":
-      action =
-        op.to && op.amount ? (
-          <>
-            <span>created account</span>
-            <Address value={op.to} />
-            <span>{`with ${formatDecimalDisplay(op.amount)} XLM`}</span>
-          </>
-        ) : (
-          <span>created an account</span>
-        );
-      break;
-    default:
-      action = <span>{`performed ${op.label.toLowerCase()}`}</span>;
-  }
-  return (
-    <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      {op.from ? <Address value={op.from} /> : null}
-      {action}
-      {opCount > 1 ? (
-        <span className="text-muted-foreground">
-          and {opCount - 1} more {opCount === 2 ? "operation" : "operations"}
-        </span>
-      ) : null}
-    </p>
-  );
 }
 
 // blockscout-style decoded call: the function, its arguments from the
@@ -391,11 +329,7 @@ function TracePanel({
   return (
     <div>
       {trace.source === "auth" && trace.calls.length > 0 ? (
-        <p className="pb-3 text-muted-foreground">
-          Reconstructed from the transaction's signed authorization data: only
-          sub-calls that required authorization appear, and return values are
-          unknown.
-        </p>
+        <AuthTraceNote />
       ) : null}
       {trace.truncated ? (
         <p className="pb-3 text-muted-foreground">
@@ -598,16 +532,6 @@ const ROW = {
     hint: "How many operations this transaction carries; each one settles or fails with the transaction as a whole.",
   },
 };
-
-// a placeholder sits inside a line box of the row's own height, so a page of
-// them is exactly as tall as the page of text it stands in for
-function ValueBar({ className }: { className?: string }) {
-  return (
-    <span className="flex h-[1lh] items-center">
-      <Skeleton className={cn("h-5", className)} />
-    </span>
-  );
-}
 
 const TAB_PLACEHOLDER_WIDTHS = ["w-12", "w-10", "w-24", "w-20", "w-8", "w-16"];
 
@@ -980,49 +904,6 @@ function BalanceDelta({ effect }: { effect: EffectRecord }) {
 // the itemised rows say what moved; this says what each account is left
 // with, which is the question a payout split across many effects makes
 // hard to answer by eye
-function NetChanges({ effects }: { effects: EffectRecord[] }) {
-  const changes = netBalanceChanges(effects);
-  if (changes.length === 0) {
-    return null;
-  }
-  return (
-    <>
-      <p className="pb-2 font-medium text-foreground/80">Net change</p>
-      <ul className="flex flex-col gap-1.5 pb-5">
-        {changes.map((change) => (
-          <li
-            key={change.holder + change.assetCode + (change.assetIssuer ?? "")}
-            className="flex flex-wrap items-center gap-x-2 gap-y-1"
-          >
-            <Address value={change.holder} />
-            <span
-              className={
-                change.amount.startsWith("-")
-                  ? "inline-flex items-center gap-1.5 font-mono text-red-600 dark:text-red-400"
-                  : "inline-flex items-center gap-1.5 font-mono text-emerald-700 dark:text-emerald-400"
-              }
-            >
-              <AssetIcon code={change.assetCode} size={14} />
-              <span>
-                {change.amount.startsWith("-") ? "" : "+"}
-                {change.amount} {change.assetCode}
-              </span>
-            </span>
-            {change.assetIssuer ? (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                issued by
-                <Address value={change.assetIssuer} />
-              </span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-// an effect names the operation it came out of; in a transaction that
-// runs several operations this is the only per-effect field that varies
 function SourceOperation({
   record,
   causedBy,
@@ -1307,7 +1188,10 @@ export function TxPage() {
   const invokes =
     firstRecord !== undefined && isContractInvocation(firstRecord);
   const soroban = useQuery({
-    ...txSorobanQuery(ACTIVE_NETWORK, target.value, tx.data?.envelope_xdr),
+    ...txSorobanQuery(ACTIVE_NETWORK, target.value, {
+      envelopeXdr: tx.data?.envelope_xdr,
+      ledger: tx.data?.ledger,
+    }),
     enabled: invokes,
   });
 

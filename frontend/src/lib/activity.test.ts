@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { buildActivityRows } from "./activity";
+import { buildActivityRows, presentOperation } from "./activity";
 import type { OperationRecord, TxRecord } from "./horizon/client";
 
 const G1 = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI";
@@ -353,4 +353,105 @@ test("asset codes longer than the protocol cap are rejected", () => {
   );
 
   expect(rows[0].op?.assetCode).toBeUndefined();
+});
+
+test("a path payment carries both sides of the conversion", () => {
+  const op = presentOperation({
+    id: "1",
+    paging_token: "1",
+    transaction_hash: "abc",
+    type: "path_payment_strict_send",
+    source_account: G1,
+    from: G1,
+    to: G2,
+    amount: "0.8488837",
+    asset_type: "credit_alphanum4",
+    asset_code: "PYUSD",
+    source_amount: "5.0000000",
+    source_asset_type: "native",
+    path: [
+      { asset_type: "credit_alphanum4", asset_code: "USDZ" },
+      { asset_type: "credit_alphanum4", asset_code: "USDC" },
+    ],
+  });
+
+  expect(op.sourceAmount).toBe("5.0000000");
+  expect(op.sourceAssetCode).toBe("XLM");
+  expect(op.assetCode).toBe("PYUSD");
+  expect(op.hops).toBe(2);
+  // two different assets is a swap, and the tag should say so
+  expect(op.label).toBe("Swap");
+});
+
+test("a trustline carries the ceiling it sets", () => {
+  const op = presentOperation({
+    id: "1",
+    paging_token: "1",
+    transaction_hash: "abc",
+    type: "change_trust",
+    source_account: G1,
+    trustor: G1,
+    trustee: G2,
+    asset_type: "credit_alphanum4",
+    asset_code: "USDC",
+    limit: "922337203685.4775807",
+  });
+
+  expect(op.assetCode).toBe("USDC");
+  expect(op.to).toBe(G2);
+  expect(op.limit).toBe("922337203685.4775807");
+});
+
+test("a retired trustline keeps its zero rather than losing it", () => {
+  // zero is what retires the line, so it must survive as a value
+  const op = presentOperation({
+    id: "1",
+    paging_token: "1",
+    transaction_hash: "abc",
+    type: "change_trust",
+    source_account: G1,
+    trustee: G2,
+    asset_type: "credit_alphanum4",
+    asset_code: "USDC",
+    limit: "0",
+  });
+
+  expect(op.limit).toBe("0");
+});
+
+test("an offer names what it wants as well as what it gives", () => {
+  const op = presentOperation({
+    id: "1",
+    paging_token: "1",
+    transaction_hash: "abc",
+    type: "manage_sell_offer",
+    source_account: G1,
+    amount: "26.5395094",
+    price: "362.9500581",
+    selling_asset_type: "native",
+    buying_asset_type: "credit_alphanum4",
+    buying_asset_code: "LMX",
+  });
+
+  expect(op.assetCode).toBe("XLM");
+  expect(op.buyingAssetCode).toBe("LMX");
+  expect(op.price).toBe("362.9500581");
+});
+
+test("a path payment in one asset is not labelled a swap", () => {
+  const op = presentOperation({
+    id: "1",
+    paging_token: "1",
+    transaction_hash: "abc",
+    type: "path_payment_strict_send",
+    source_account: G1,
+    from: G1,
+    to: G2,
+    amount: "5.0000000",
+    asset_type: "native",
+    source_amount: "5.0000000",
+    source_asset_type: "native",
+  });
+
+  expect(op.label).toBe("Path payment");
 });

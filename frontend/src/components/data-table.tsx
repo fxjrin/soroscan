@@ -19,40 +19,64 @@ export interface Column {
 export function DataTable({
   columns,
   minWidth,
+  headless = false,
   children,
 }: {
   columns: Column[];
   minWidth: string;
+  /** the table continues something above it, which already said what it is */
+  headless?: boolean;
   children: ReactNode;
 }) {
   const last = columns.length - 1;
   return (
-    <div className="-mx-3 overflow-x-auto">
+    // the wrapper stops scrolling once the table fits, because a scroll
+    // container of its own would anchor the sticky header to itself and
+    // the header would scroll away with the rows
+    <div className="-mx-3 overflow-x-auto lg:overflow-visible">
+      {/* the header row's rounded corners let a pointer through to whatever
+          scrolled behind it, which then hovers and shows in the corner; this
+          catches those points before they reach a row. Its height is the
+          header's: one line plus the cell padding */}
+      {headless ? null : (
+        <div
+          aria-hidden="true"
+          className="sticky top-[var(--table-sticky-top,3.5rem)] z-[9] -mb-[calc(1lh+1rem)] h-[calc(1lh+1rem)] bg-background"
+        />
+      )}
       <table
         className={cn(
           "w-full border-separate border-spacing-0 text-left",
           minWidth,
         )}
       >
-        <thead>
-          <tr className="bg-muted text-muted-foreground">
-            {columns.map((column, index) => (
-              <th
-                key={column.label}
-                scope="col"
-                className={cn(
-                  "px-3 py-2 font-normal",
-                  index === 0 && "rounded-ss-md",
-                  index === last && "rounded-se-md",
-                  column.numeric && "text-right",
-                  column.tight && "w-px whitespace-nowrap",
-                )}
-              >
-                {column.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
+        {/* the header stops under the site header, or under whatever the
+            page parks above it, so the columns stay readable while the
+            rows scroll past */}
+        {headless ? null : (
+          // the row's rounded top corners leave the corners themselves
+          // uncovered, and rows scroll through them while the header is
+          // stuck, so the head carries the page colour behind them
+          <thead className="sticky top-[var(--table-sticky-top,3.5rem)] z-10 bg-background">
+            <tr className="bg-muted text-muted-foreground">
+              {columns.map((column, index) => (
+                <th
+                  key={column.label}
+                  scope="col"
+                  className={cn(
+                    "px-3 py-2 font-normal",
+                    index === 0 && "rounded-ss-md",
+                    index === last && "rounded-se-md",
+                    column.numeric && "text-right",
+                    column.tight && "w-px whitespace-nowrap",
+                  )}
+                >
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+        )}
         <tbody>{children}</tbody>
       </table>
     </div>
@@ -85,15 +109,19 @@ export function DataCell({
   numeric,
   tight,
   className,
+  onPointerEnter,
   children,
 }: {
   numeric?: boolean;
   tight?: boolean;
   className?: string;
+  /** a cell that can be opened uses this to warm what opening it needs */
+  onPointerEnter?: () => void;
   children: ReactNode;
 }) {
   return (
     <td
+      onPointerEnter={onPointerEnter}
       className={cn(
         "px-3 py-3",
         numeric && "text-right",

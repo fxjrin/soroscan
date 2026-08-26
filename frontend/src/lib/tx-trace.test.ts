@@ -245,6 +245,8 @@ test("attaches a contract event to the call that raised it", async () => {
       contract: C1,
       topics: [{ kind: "text", type: "sym", text: "mint" }],
       data: { kind: "text", type: "u32", text: "9" },
+      // it fired after both calls opened, which is what puts it below them
+      seq: 2,
     },
   ]);
   expect(trace?.events).toHaveLength(0);
@@ -260,6 +262,7 @@ test("without diagnostics the meta events surface unattributed", async () => {
       contract: C1,
       topics: [{ kind: "text", type: "sym", text: "mint" }],
       data: { kind: "text", type: "u32", text: "9" },
+      seq: 0,
     },
   ]);
 });
@@ -431,4 +434,37 @@ test("collects core_metrics counters and the resource fee split", async () => {
 test("garbage in both sources decodes to nothing", async () => {
   await expect(decodeTrace("AAAA", "not base64!!!")).resolves.toBeUndefined();
   await expect(decodeTrace(undefined, undefined)).resolves.toBeUndefined();
+});
+
+test("a frame's events and sub-calls keep the order they happened in", async () => {
+  // the contract emits, then calls, then emits again: three siblings whose
+  // order is only recoverable from the stream, not from their kind
+  const meta = metaOf([
+    fnCall("harvest", []),
+    new DiagnosticEvent({
+      inSuccessfulContractCall: true,
+      event: contractEvent("before", ScVal.scvU32(1)),
+    }),
+    fnCall("mint", []),
+    fnReturn("mint", ScVal.scvVoid()),
+    new DiagnosticEvent({
+      inSuccessfulContractCall: true,
+      event: contractEvent("after", ScVal.scvU32(2)),
+    }),
+    fnReturn("harvest", ScVal.scvVoid()),
+  ]);
+  const trace = await decodeTrace(meta, undefined);
+  const root = trace!.calls[0];
+
+  const order = [
+    ...root.events.map((event) => ({
+      seq: event.seq,
+      name: (event.topics[0] as { text: string }).text,
+    })),
+    ...root.calls.map((call) => ({ seq: call.seq, name: call.fn })),
+  ]
+    .sort((left, right) => left.seq - right.seq)
+    .map((child) => child.name);
+
+  expect(order).toEqual(["before", "mint", "after"]);
 });

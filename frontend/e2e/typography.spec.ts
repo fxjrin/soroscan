@@ -48,8 +48,43 @@ const LEDGER = {
   paging_token: "1",
 };
 
+const ACCOUNT = {
+  id: G1,
+  account_id: G1,
+  sequence: "203069091936010245",
+  subentry_count: 2,
+  last_modified_ledger: 64000123,
+  home_domain: "example.com",
+  balances: [
+    { balance: "100.0000000", asset_type: "native" },
+    {
+      balance: "250.0000000",
+      asset_type: "credit_alphanum4",
+      asset_code: "USDC",
+      asset_issuer: G1,
+      limit: "1000.0000000",
+    },
+  ],
+  signers: [{ key: G1, weight: 1, type: "ed25519_public_key" }],
+  thresholds: { low_threshold: 1, med_threshold: 2, high_threshold: 3 },
+  flags: {
+    auth_required: true,
+    auth_revocable: false,
+    auth_immutable: false,
+    auth_clawback_enabled: false,
+  },
+  data: { greeting: "aGVsbG8=" },
+};
+
 function horizonHandler(route: Route) {
   const url = route.request().url();
+  // the account page is only worth measuring with a body to render
+  if (url.includes(`/accounts/${G1}/`)) {
+    return route.fulfill({ json: { _embedded: { records: [] } } });
+  }
+  if (url.includes(`/accounts/${G1}`)) {
+    return route.fulfill({ json: ACCOUNT });
+  }
   if (url.includes(`/transactions/${HASH}/`)) {
     return route.fulfill({ json: { _embedded: { records: [] } } });
   }
@@ -116,6 +151,9 @@ for (const [name, path] of ROUTES) {
         }
         if (element.closest(".sr-only") !== null) {
           continue; // announced to screen readers, never painted
+        }
+        if (element.closest('[aria-hidden="true"]') !== null) {
+          continue; // decoration: a glyph drawn to fit its own box
         }
         const box = (element as HTMLElement).getBoundingClientRect();
         if (box.width === 0 || box.height === 0) {

@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { blockLiveHosts, HORIZON_PROVIDERS, RPC_PROVIDERS } from "./hermetic";
+import {
+  blockLiveHosts,
+  HORIZON_PROVIDERS,
+  LEDGER_ARCHIVE,
+  RPC_PROVIDERS,
+} from "./hermetic";
 
 const HASH = "beef".repeat(16);
 const FAILED_HASH = "dead".repeat(16);
@@ -635,6 +640,163 @@ test("the tab strip never gains or moves a tab while loading", async ({
   expect(before.length).toBe(after.length);
   expect(before[1]).toContain("Trace");
   expect(afterX).toBe(beforeX);
+});
+
+test("an old transaction gets its trace from the public ledger archive", async ({
+  page,
+}) => {
+  // RPC has dropped the meta and the envelope carries no authorization
+  // entries, so the archive is the only place a call tree can come from
+  const { batch, hash } = await import("../src/lib/ledger-lake.fixture");
+  const ARCHIVED = `/tx/${hash}`;
+
+  for (const pattern of HORIZON_PROVIDERS) {
+    await page.route(pattern, (route) => {
+      const url = route.request().url();
+      if (url.includes(`${hash}/operations`)) {
+        return route.fulfill({ json: sorobanOperations() });
+      }
+      if (url.includes(hash)) {
+        return route.fulfill({
+          json: { ...detail(hash, true), ledger: 63731687, operation_count: 1 },
+        });
+      }
+      return horizonHandler(route);
+    });
+  }
+  await page.route(LEDGER_ARCHIVE, (route) =>
+    route.fulfill({
+      body: Buffer.from(batch),
+      contentType: "application/octet-stream",
+    }),
+  );
+
+  await page.goto(`${ARCHIVED}?tab=trace`);
+
+  const tree = page.getByRole("tabpanel").getByRole("table").first();
+  await expect(tree).toContainText("pay_with_token(");
+  // the archive carries diagnostic events, so this is the execution itself,
+  // nested calls and all, not a tree rebuilt from what was authorized
+  await expect(tree).toContainText("swap_exact_tokens_for_tokens(");
+  await expect(page.getByRole("tabpanel")).not.toContainText(
+    "signed authorization data",
+  );
+
+  // a token event says what it moved, in money rather than raw stroops
+  await expect(tree).toContainText("5.903971 XLM");
+
+  // every connector belongs to a row that is really there: a guide is drawn
+  // in a column exactly when a later row is a sibling at that level
+  const problems = await page.evaluate(() => {
+    const CELL = 12;
+    const LINE = 7; // half an identicon: the column a connector centres on
+    const STEP = 24;
+    const table = document.querySelectorAll("table")[0];
+    const rows = [...table.querySelectorAll("tbody tr")].map((row) => {
+      const cell = row.querySelector("td")!;
+      const label = cell.querySelector("span.block") as HTMLElement;
+      const depth = Math.round(
+        parseFloat(getComputedStyle(label).paddingInlineStart) / STEP,
+      );
+      const cellBox = cell.getBoundingClientRect();
+      const boxes = [...cell.querySelectorAll("span")].map((span) =>
+        span.getBoundingClientRect(),
+      );
+      return {
+        depth,
+        height: cellBox.height,
+        verticals: boxes
+          .filter((box) => box.width <= 1.5 && box.height > 2)
+          .map((box) => ({
+            x: Math.round(box.left - cellBox.left),
+            // a stem that reaches the bottom carries the branch onward
+            full: box.bottom >= cellBox.bottom - 1,
+          })),
+        elbows: boxes
+          .filter((box) => box.height <= 1.5 && box.width > 2)
+          .map((box) => Math.round(box.left - cellBox.left)),
+      };
+    });
+
+    const found: string[] = [];
+    rows.forEach((row, index) => {
+      const stem = row.depth > 0 ? CELL + LINE + (row.depth - 1) * STEP : null;
+      if (stem !== null && !row.elbows.includes(stem)) {
+        found.push(`row ${index}: elbow not at its own depth`);
+      }
+      const wanted: number[] = [];
+      for (let level = 0; level < row.depth - 1; level++) {
+        for (let next = index + 1; next < rows.length; next++) {
+          if (rows[next].depth <= level) break;
+          if (rows[next].depth === level + 1) {
+            wanted.push(CELL + LINE + level * STEP);
+            break;
+          }
+        }
+      }
+      const drawn = row.verticals
+        .filter((line) => line.x !== stem)
+        .map((line) => line.x);
+      for (const column of wanted) {
+        if (!drawn.includes(column)) {
+          found.push(`row ${index}: guide missing at ${column}`);
+        }
+      }
+      for (const column of drawn) {
+        if (!wanted.includes(column)) {
+          found.push(`row ${index}: guide hangs at ${column}`);
+        }
+      }
+
+      // the row's own stem runs to the bottom only when a sibling follows
+      if (stem !== null) {
+        let hasSibling = false;
+        for (let next = index + 1; next < rows.length; next++) {
+          if (rows[next].depth < row.depth) break;
+          if (rows[next].depth === row.depth) {
+            hasSibling = true;
+            break;
+          }
+        }
+        const own = row.verticals.find((line) => line.x === stem);
+        if (own !== undefined && own.full !== hasSibling) {
+          found.push(
+            `row ${index}: stem ${own.full ? "runs past" : "stops before"} a sibling that ${hasSibling ? "exists" : "does not"}`,
+          );
+        }
+      }
+    });
+    return found;
+  });
+
+  expect(problems, problems.join("; ")).toEqual([]);
+
+  // the branch drops out of the middle of the address it belongs to, so the
+  // identicon of a parent and the line under it share one column
+  const columns = await page.evaluate(() => {
+    const rows = [
+      ...document.querySelectorAll("table")[0].querySelectorAll("tbody tr"),
+    ];
+    const parent = rows[0].querySelector("td")!;
+    const icon = parent
+      .querySelector("img, canvas, span[aria-hidden]")!
+      .getBoundingClientRect();
+    const child = rows[1].querySelector("td")!;
+    const stem = [...child.querySelectorAll("span")]
+      .map((span) => span.getBoundingClientRect())
+      .find((box) => box.width <= 1.5 && box.height > 2)!;
+    const round = (value: number) => Math.round(value * 100) / 100;
+    return {
+      icon: round(
+        icon.left + icon.width / 2 - parent.getBoundingClientRect().left,
+      ),
+      stem: round(
+        stem.left + stem.width / 2 - child.getBoundingClientRect().left,
+      ),
+    };
+  });
+
+  expect(columns.stem).toBe(columns.icon);
 });
 
 test("a failed transaction says so", async ({ page }) => {

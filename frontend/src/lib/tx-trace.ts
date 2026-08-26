@@ -20,6 +20,8 @@ export interface TraceEvent {
   contract?: string;
   topics: Array<ScDisplay | undefined>;
   data?: ScDisplay;
+  /** when this fired among its siblings; see TraceCall.seq */
+  seq: number;
 }
 
 /** One node of the nested contract call tree. */
@@ -30,6 +32,12 @@ export interface TraceCall {
   result?: ScDisplay;
   events: TraceEvent[];
   calls: TraceCall[];
+  /**
+   * when this happened among its siblings. A frame's events and its
+   * sub-calls are interleaved in the stream, so keeping them in two lists
+   * would otherwise print a contract's events before work that came first
+   */
+  seq: number;
 }
 
 export interface TraceStateChange {
@@ -149,7 +157,11 @@ function scAddressOf(xdr: Xdr, address: unknown): string | undefined {
   }
 }
 
-function eventOf(xdr: Xdr, raw: ContractEvent): TraceEvent | undefined {
+function eventOf(
+  xdr: Xdr,
+  raw: ContractEvent,
+  seq = 0,
+): TraceEvent | undefined {
   if (raw.body.type !== "v0") {
     return undefined;
   }
@@ -158,6 +170,7 @@ function eventOf(xdr: Xdr, raw: ContractEvent): TraceEvent | undefined {
     contract: contractIdOf(xdr, raw.contractId),
     topics: raw.body.v0.topics.map((topic) => decodeScVal(scValB64(topic))),
     data: data?.type === "void" ? undefined : data,
+    seq,
   };
 }
 
@@ -180,6 +193,7 @@ function walkDiagnostics(
   const stack: TraceCall[] = [];
   let nodes = 0;
   let raised = 0;
+  let seq = 0;
   for (const raw of stream) {
     if (raw.event.body.type !== "v0") {
       continue;
@@ -192,7 +206,10 @@ function walkDiagnostics(
       raised++;
       const event = eventOf(xdr, raw.event);
       if (event !== undefined) {
-        (stack[stack.length - 1]?.events ?? events).push(event);
+        (stack[stack.length - 1]?.events ?? events).push({
+          ...event,
+          seq: seq++,
+        });
       }
       continue;
     }
@@ -233,6 +250,7 @@ function walkDiagnostics(
               : [argsValue],
         events: [],
         calls: [],
+        seq: seq++,
       };
       (stack[stack.length - 1]?.calls ?? calls).push(node);
       stack.push(node);
@@ -256,7 +274,7 @@ function flatEventsOf(xdr: Xdr, meta: MetaArm): TraceEvent[] {
       : meta.v4.operations.flatMap((operation) => operation.events);
   return raw
     .slice(0, MAX_ITEMS)
-    .map((event) => eventOf(xdr, event))
+    .map((event, index) => eventOf(xdr, event, index))
     .filter((event) => event !== undefined);
 }
 
@@ -430,7 +448,7 @@ function changesOf(meta: MetaArm): LedgerEntryChange[] {
   return operations.flatMap((operation) => operation.changes);
 }
 
-function callOf(xdr: Xdr, invocation: InvokeContractArgs): TraceCall {
+function callOf(xdr: Xdr, invocation: InvokeContractArgs, seq = 0): TraceCall {
   return {
     contract: decodeScAddress(
       xdr.ScVal.scvAddress(invocation.contractAddress).toXdr("base64"),
@@ -442,6 +460,7 @@ function callOf(xdr: Xdr, invocation: InvokeContractArgs): TraceCall {
     args: invocation.args.map((arg) => decodeScVal(arg.toXdr("base64"))),
     events: [],
     calls: [],
+    seq,
   };
 }
 
@@ -458,10 +477,15 @@ function fromAuthInvocation(
   const fn = invocation.function;
   const node =
     fn.type === "sorobanAuthorizedFunctionTypeContractFn"
-      ? callOf(xdr, fn.contractFn)
-      : { fn: "create_contract", args: [], events: [], calls: [] };
+      ? callOf(xdr, fn.contractFn, depth)
+      : { fn: "create_contract", args: [], events: [], calls: [], seq: depth };
+  // an authorization tree has no interleaved events, so position among
+  // siblings is simply the order the entries are listed in
   node.calls = invocation.subInvocations
-    .map((sub) => fromAuthInvocation(xdr, sub, depth + 1))
+    .map((sub, index) => {
+      const child = fromAuthInvocation(xdr, sub, depth + 1);
+      return child === undefined ? undefined : { ...child, seq: index };
+    })
     .filter((sub) => sub !== undefined);
   return node;
 }

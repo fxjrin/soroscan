@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { InfoHint } from "@/components/info-hint";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 interface EntityShellProps {
   title: string;
@@ -51,5 +53,18 @@ export function Row({
       </dt>
       <dd className="min-w-0">{children}</dd>
     </div>
+  );
+}
+
+/**
+ * Stands in for one Row value while it loads. It sits inside a line box of
+ * the row's own height, so a page of placeholders is exactly as tall as the
+ * page of text that replaces it and nothing shifts on arrival.
+ */
+export function ValueBar({ className }: { className?: string }) {
+  return (
+    <span className="flex h-[1lh] items-center">
+      <Skeleton className={cn("h-5", className)} />
+    </span>
   );
 }

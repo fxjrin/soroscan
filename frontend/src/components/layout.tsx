@@ -71,7 +71,9 @@ export function Layout() {
 
   return (
     <div className="flex min-h-svh flex-col">
-      <header className="sticky top-0 z-40 bg-background/85 backdrop-blur">
+      {/* opaque, not translucent: rows scrolling underneath a sticky bar
+          read as a rendering fault rather than as depth */}
+      <header className="sticky top-0 z-40 bg-background">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Link to={appPath("/")} className="flex items-center gap-2.5">
             <LogoMark size={26} />

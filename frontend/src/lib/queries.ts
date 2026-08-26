@@ -1,5 +1,9 @@
 import { QueryClient, queryOptions } from "@tanstack/react-query";
 import {
+  fetchAccount,
+  fetchAccountOffers,
+  fetchAccountOperations,
+  fetchTransactionMeta,
   fetchLatestLedgers,
   fetchLatestOperations,
   fetchLatestTransactions,
@@ -21,6 +25,7 @@ import {
   fetchRpcTransaction,
 } from "@/lib/rpc/client";
 import { decodeReturnValue } from "@/lib/tx-meta";
+import { fetchArchivedMeta } from "@/lib/ledger-lake";
 import { decodeTrace, type TxTrace } from "@/lib/tx-trace";
 import { decodeXdrJson } from "@/lib/xdr-decode";
 import type { ScDisplay } from "@/lib/scval";
@@ -181,16 +186,45 @@ export interface SorobanDetails {
 // return value and call trace both live in the transaction meta, which
 // Horizon no longer serves; one RPC fetch covers both, and for meta
 // outside the retention window the trace falls back to the envelope
+export interface TxSources {
+  /** lets a trace fall back to the signed authorization entries */
+  envelopeXdr?: string;
+  /** lets the public archive be asked for meta RPC no longer has */
+  ledger?: number;
+}
+
 export function txSorobanQuery(
   network: NetworkId,
   hash: string,
-  envelopeXdr?: string,
+  sources: TxSources = {},
 ) {
+  const { envelopeXdr, ledger } = sources;
   return queryOptions({
-    queryKey: [network, "rpc", "tx", hash, "soroban"],
+    // the envelope is part of the identity: without it a trace cannot fall
+    // back to the authorization entries, so a caller that has no envelope
+    // must not leave its thinner answer in the cache for one that does
+    queryKey: [
+      network,
+      "rpc",
+      "tx",
+      hash,
+      "soroban",
+      envelopeXdr === undefined ? "meta" : "meta+envelope",
+      ledger === undefined ? "live" : "archived",
+    ],
     queryFn: async ({ signal }): Promise<SorobanDetails> => {
       const tx = await fetchRpcTransaction(network, hash, signal);
-      const metaXdr = tx.status === "NOT_FOUND" ? undefined : tx.resultMetaXdr;
+      // RPC drops meta after about a week. The public ledger archive keeps
+      // the whole history and, unlike Horizon, its meta still carries the
+      // diagnostic events a nested call tree is built from, so it is asked
+      // first and Horizon is the last resort
+      const live = tx.status === "NOT_FOUND" ? undefined : tx.resultMetaXdr;
+      const metaXdr =
+        live ??
+        (ledger === undefined
+          ? undefined
+          : await fetchArchivedMeta(network, ledger, hash, signal)) ??
+        (await fetchTransactionMeta(network, hash, signal));
       const returnValue =
         tx.status === "SUCCESS" && metaXdr !== undefined
           ? await decodeReturnValue(metaXdr)
@@ -251,5 +285,48 @@ export function latestLedgersQuery(network: NetworkId, limit: number) {
     refetchInterval: (query) =>
       query.state.status === "error" ? ERROR_BACKOFF_MS : LEDGER_CLOSE_MS,
     staleTime: LEDGER_CLOSE_MS - 1000,
+  });
+}
+
+// an account is tip-of-chain: its balances and sequence move with the
+// network, so it gets a short staleness rather than the permanent cache a
+// confirmed transaction earns
+export function accountQuery(network: NetworkId, address: string) {
+  return queryOptions({
+    queryKey: [network, "horizon", "account", address],
+    queryFn: ({ signal }) => fetchAccount(network, address, signal),
+    staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
+// history is walked page by page rather than accumulated, so each page is
+// its own cache entry and going back is free
+export function accountOperationsQuery(
+  network: NetworkId,
+  address: string,
+  limit: number,
+  cursor?: string,
+) {
+  return queryOptions({
+    queryKey: [network, "horizon", "account", address, "operations", cursor],
+    queryFn: ({ signal }) =>
+      fetchAccountOperations(network, address, limit, cursor, signal),
+    staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
+// an open offer is live state: it can be taken or cancelled at any moment,
+// so it gets the same short staleness the account itself does
+export function accountOffersQuery(
+  network: NetworkId,
+  address: string,
+  limit: number,
+  cursor?: string,
+) {
+  return queryOptions({
+    queryKey: [network, "horizon", "account", address, "offers", cursor],
+    queryFn: ({ signal }) =>
+      fetchAccountOffers(network, address, limit, cursor, signal),
+    staleTime: LEDGER_CLOSE_MS,
   });
 }

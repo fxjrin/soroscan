@@ -14,6 +14,16 @@ export interface PrimaryOp {
   to?: string;
   amount?: string;
   assetCode?: string;
+  /** what went in, when an operation trades one asset for another */
+  sourceAmount?: string;
+  sourceAssetCode?: string;
+  /** what an offer asks for, and at what rate */
+  buyingAssetCode?: string;
+  price?: string;
+  /** the ceiling a trustline sets; "0" retires the line */
+  limit?: string;
+  /** how many hops a path payment took, when it took more than none */
+  hops?: number;
 }
 
 export interface ActivityRow {
@@ -123,8 +133,6 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
   };
   switch (op.type) {
     case "payment":
-    case "path_payment_strict_send":
-    case "path_payment_strict_receive":
       return {
         ...base,
         from: op.from,
@@ -132,6 +140,33 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.asset_type, op.asset_code),
       };
+    // a path payment is a swap when it lands back on the sender, and a
+    // payment in one asset paid for with another when it does not
+    case "path_payment_strict_send":
+    case "path_payment_strict_receive": {
+      const assetCode = assetCodeOf(op.asset_type, op.asset_code);
+      const sourceAssetCode = assetCodeOf(
+        op.source_asset_type,
+        op.source_asset_code,
+      );
+      // one asset in and another out is a swap; the same asset on both
+      // sides is a payment that merely took a route
+      const swapped =
+        assetCode !== undefined &&
+        sourceAssetCode !== undefined &&
+        assetCode !== sourceAssetCode;
+      return {
+        ...base,
+        label: swapped ? "Swap" : base.label,
+        from: op.from,
+        to: op.to,
+        amount: amountOf(op.amount),
+        assetCode,
+        sourceAmount: amountOf(op.source_amount),
+        sourceAssetCode,
+        hops: op.path?.length,
+      };
+    }
     case "create_account":
       return {
         ...base,
@@ -152,6 +187,11 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         toHint: "order book",
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.selling_asset_type, op.selling_asset_code),
+        buyingAssetCode: assetCodeOf(
+          op.buying_asset_type,
+          op.buying_asset_code,
+        ),
+        price: amountOf(op.price),
       };
     case "manage_buy_offer":
       return {
@@ -160,6 +200,11 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         toHint: "order book",
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.buying_asset_type, op.buying_asset_code),
+        buyingAssetCode: assetCodeOf(
+          op.selling_asset_type,
+          op.selling_asset_code,
+        ),
+        price: amountOf(op.price),
       };
     case "liquidity_pool_deposit":
     case "liquidity_pool_withdraw":
@@ -193,6 +238,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         to,
         toHint: to === undefined ? "liquidity pool" : undefined,
         assetCode: assetCodeOf(op.asset_type, op.asset_code),
+        limit: amountOf(op.limit),
       };
     }
     case "extend_footprint_ttl":
