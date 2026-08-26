@@ -520,9 +520,11 @@ test("history says what each transaction cost", async ({ page }) => {
   await expect(page.getByRole("row").nth(1)).toContainText("0.00001 XLM");
   await expect(page.getByRole("row").nth(3)).toContainText("0.00002 XLM");
 
-  // and when it happened, both as a glance and as a timestamp
+  // and when it happened, both as a glance and as a timestamp. The glance is
+  // relative to now, so only its shape can be asserted here; what it counts
+  // is pinned by the unit tests for formatAgo
   const age = page.getByRole("row").nth(3);
-  await expect(age).toContainText("1d ago");
+  await expect(age).toContainText(/\d+[smhd] ago/);
   await expect(age).toContainText("Aug 24, 2026, 10:00:00 UTC");
 });
 
