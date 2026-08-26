@@ -15,7 +15,8 @@ test("search routes a G address to the account page", async ({ page }) => {
 
   await expect(page).toHaveURL(`/account/${G}`);
   await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
-  await expect(page.getByText("GADQ...OZPI")).toBeVisible();
+  // an entity page identifies itself in full, the way the tx page does
+  await expect(page.getByText(G)).toBeVisible();
 });
 
 test("search routes a ledger sequence and keeps the testnet param", async ({

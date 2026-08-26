@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  fetchAccount,
+  fetchAccountOperations,
+  fetchTransactionMeta,
   fetchLatestLedgers,
   fetchLedger,
   fetchTransaction,
@@ -136,4 +139,112 @@ test("rejects a ledger body that would reach the page as a non-string hash", asy
 
   expect(failure).toBeInstanceOf(UpstreamError);
   expect(String(failure)).toMatch(/malformed/);
+});
+
+const ACCOUNT_BODY = JSON.stringify({
+  id: "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI",
+  account_id: "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI",
+  sequence: "203069091936010245",
+  subentry_count: 2,
+  last_modified_ledger: 64000123,
+  balances: [{ balance: "12.5000000", asset_type: "native" }],
+  signers: [
+    {
+      key: "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI",
+      weight: 1,
+      type: "ed25519_public_key",
+    },
+  ],
+  thresholds: { low_threshold: 0, med_threshold: 0, high_threshold: 0 },
+  flags: {
+    auth_required: false,
+    auth_revocable: false,
+    auth_immutable: false,
+    auth_clawback_enabled: false,
+  },
+});
+
+test("an account keeps its int64 fields as strings", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response(200, ACCOUNT_BODY)),
+  );
+
+  const account = await fetchAccount("testnet", "GADQ");
+
+  expect(account.sequence).toBe("203069091936010245");
+  expect(account.balances[0].balance).toBe("12.5000000");
+});
+
+test("a body of the wrong shape is an upstream error, not an account", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response(200, '{"account_id":"GADQ"}')),
+  );
+
+  await expect(fetchAccount("testnet", "GADQ")).rejects.toBeInstanceOf(
+    UpstreamError,
+  );
+});
+
+test("account history pages from a cursor and keeps failed operations", async () => {
+  const fetchMock = vi.fn(async (_url: unknown, _init?: unknown) =>
+    response(200, '{"_embedded":{"records":[]}}'),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  await fetchAccountOperations("testnet", "GADQ", 20, "275000000000000000");
+
+  expect(fetchMock.mock.calls[0][0]).toBe(
+    "https://horizon-testnet.stellar.org/accounts/GADQ/operations" +
+      "?order=desc&limit=20&include_failed=true&join=transactions" +
+      "&cursor=275000000000000000",
+  );
+});
+
+test("the first page of history asks for no cursor at all", async () => {
+  const fetchMock = vi.fn(async (_url: unknown, _init?: unknown) =>
+    response(200, '{"_embedded":{"records":[]}}'),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  await fetchAccountOperations("testnet", "GADQ", 20);
+
+  expect(fetchMock.mock.calls[0][0]).not.toContain("cursor");
+});
+
+test("the meta comes from whichever provider still keeps one", async () => {
+  // SDF's Horizon runs with transaction meta off, so the first answer is a
+  // valid transaction with no meta in it; the next provider has it
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(response(200, '{"hash":"abc"}'))
+    .mockResolvedValueOnce(
+      response(200, '{"hash":"abc","result_meta_xdr":"AAAA"}'),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(fetchTransactionMeta("mainnet", "abc")).resolves.toBe("AAAA");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+test("no provider keeping a meta resolves to nothing, not an error", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response(200, '{"hash":"abc"}')),
+  );
+
+  await expect(fetchTransactionMeta("mainnet", "abc")).resolves.toBeUndefined();
+});
+
+test("an unreachable provider is skipped rather than failing the lookup", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("network down"))
+    .mockResolvedValueOnce(
+      response(200, '{"hash":"abc","result_meta_xdr":"AAAA"}'),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(fetchTransactionMeta("mainnet", "abc")).resolves.toBe("AAAA");
 });

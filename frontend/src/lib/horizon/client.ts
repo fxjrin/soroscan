@@ -112,6 +112,10 @@ export interface OperationRecord {
   transaction_hash: string;
   type: string;
   source_account: string;
+  created_at?: string;
+  transaction_successful?: boolean;
+  /** present when the operation was asked for with its transaction joined */
+  transaction?: TxRecord;
   from?: string;
   to?: string;
   amount?: string;
@@ -140,6 +144,17 @@ export interface OperationRecord {
   trustee?: string;
   asset_issuer?: string;
   asset?: string;
+  limit?: string;
+  price?: string;
+  offer_id?: string;
+  source_amount?: string;
+  source_asset_type?: string;
+  source_asset_code?: string;
+  path?: Array<{
+    asset_type?: string;
+    asset_code?: string;
+    asset_issuer?: string;
+  }>;
 }
 
 export function fetchLatestOperations(
@@ -165,6 +180,8 @@ export interface TxDetailRecord extends TxRecord {
   fee_account?: string;
   signatures?: string[];
   envelope_xdr?: string;
+  /** absent from providers that run with transaction meta turned off */
+  result_meta_xdr?: string;
   result_xdr?: string;
   fee_meta_xdr?: string;
 }
@@ -258,6 +275,184 @@ export function fetchLatestTransactions(
     network,
     "/transactions",
     { order: "desc", limit, include_failed: "true" },
+    signal,
+  );
+}
+
+// balances are string decimals; a native balance carries no code or issuer,
+// and a liquidity pool share carries neither but a pool id instead
+export interface BalanceRecord {
+  balance: string;
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  limit?: string;
+  buying_liabilities?: string;
+  selling_liabilities?: string;
+  liquidity_pool_id?: string;
+  is_authorized?: boolean;
+  is_authorized_to_maintain_liabilities?: boolean;
+}
+
+export interface SignerRecord {
+  key: string;
+  weight: number;
+  type: string;
+}
+
+export interface AccountRecord {
+  id: string;
+  account_id: string;
+  sequence: string;
+  subentry_count: number;
+  last_modified_ledger: number;
+  balances: BalanceRecord[];
+  signers: SignerRecord[];
+  thresholds: {
+    low_threshold: number;
+    med_threshold: number;
+    high_threshold: number;
+  };
+  flags: {
+    auth_required: boolean;
+    auth_revocable: boolean;
+    auth_immutable: boolean;
+    auth_clawback_enabled: boolean;
+  };
+  data?: Record<string, string>;
+  home_domain?: string;
+  num_sponsoring?: number;
+  num_sponsored?: number;
+  sponsor?: string;
+}
+
+function isAccount(body: unknown): body is AccountRecord {
+  const account = body as AccountRecord | null;
+  return (
+    typeof account === "object" &&
+    account !== null &&
+    typeof account.account_id === "string" &&
+    typeof account.sequence === "string" &&
+    typeof account.subentry_count === "number" &&
+    Array.isArray(account.balances) &&
+    Array.isArray(account.signers) &&
+    typeof account.thresholds === "object" &&
+    account.thresholds !== null
+  );
+}
+
+/** The caller must validate the address shape before interpolating it. */
+export async function fetchAccount(
+  network: NetworkId,
+  address: string,
+  signal?: AbortSignal,
+): Promise<AccountRecord> {
+  const account = await horizonGet<unknown>(
+    network,
+    `/accounts/${address}`,
+    undefined,
+    signal,
+  );
+  if (!isAccount(account)) {
+    throw new UpstreamError(`account ${address}: malformed response body`);
+  }
+  return account;
+}
+
+// history is walked newest first, a page at a time; the cursor is the
+// paging token of the last record the caller already holds
+export function fetchAccountOperations(
+  network: NetworkId,
+  address: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+) {
+  return horizonGet<HorizonPage<OperationRecord>>(
+    network,
+    `/accounts/${address}/operations`,
+    {
+      order: "desc",
+      limit,
+      include_failed: "true",
+      // the fee belongs to the transaction, not to the operation, and
+      // joining it here is what keeps the history one request
+      join: "transactions",
+      ...(cursor === undefined ? {} : { cursor }),
+    },
+    signal,
+  );
+}
+
+/**
+ * The execution meta for a transaction, from whichever Horizon provider
+ * still keeps it. SDF's Horizon runs with transaction meta turned off, so
+ * its answer never carries one; other providers do keep it, and theirs
+ * outlives the roughly one-week window RPC holds meta for. Providers are
+ * tried in turn because the first to answer is not necessarily the one
+ * that answers with a meta.
+ */
+export async function fetchTransactionMeta(
+  network: NetworkId,
+  hash: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  for (const base of NETWORKS[network].horizonUrls) {
+    try {
+      const response = await fetch(`${base}/transactions/${hash}`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const body: unknown = await response.json();
+      const meta = (body as TxDetailRecord | null)?.result_meta_xdr;
+      if (typeof meta === "string" && meta !== "") {
+        return meta;
+      }
+    } catch {
+      continue; // an unreachable provider is one fewer place to look
+    }
+  }
+  return undefined;
+}
+
+/** One asset as Horizon nests it inside an offer. */
+export interface OfferAsset {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+}
+
+/** A standing order on the order book, still waiting to be taken. */
+export interface OfferRecord {
+  id: string;
+  paging_token: string;
+  seller: string;
+  selling: OfferAsset;
+  buying: OfferAsset;
+  /** decimal strings; an offer can be far larger than a JS number holds */
+  amount: string;
+  price: string;
+  last_modified_time?: string;
+}
+
+export function fetchAccountOffers(
+  network: NetworkId,
+  address: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+) {
+  return horizonGet<HorizonPage<OfferRecord>>(
+    network,
+    `/accounts/${address}/offers`,
+    {
+      order: "desc",
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+    },
     signal,
   );
 }

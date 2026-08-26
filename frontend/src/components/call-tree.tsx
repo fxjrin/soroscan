@@ -8,6 +8,13 @@ import {
   type Column,
 } from "@/components/data-table";
 import { CallSignature } from "@/components/scval-view";
+import { tokenMove, type TokenMove } from "@/lib/token-move";
+import {
+  TreeElbow,
+  TreeGuide,
+  TREE_LINE,
+  TREE_STEP,
+} from "@/components/tree-lines";
 import type { TraceCall, TraceEvent } from "@/lib/tx-trace";
 import { cn } from "@/lib/utils";
 
@@ -17,12 +24,41 @@ interface TraceRow {
   /** for each ancestor column, whether its branch continues below this row */
   guides: boolean[];
   lastSibling: boolean;
-  kind: "call" | "event";
+  kind: "call" | "event" | "move";
   /** who acted: the caller for a call, the emitter for an event */
   actor?: string;
   /** what a call ran against; an event acts on nothing */
   target?: string;
   signature: ReactNode;
+}
+
+/**
+ * What a token event did to a balance, said in money rather than in raw
+ * stroops, so the tree shows the value moving where it moved.
+ */
+function MoveLine({ move }: { move: TokenMove }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="font-mono">
+        {move.amount}
+        {move.code === undefined ? null : (
+          <span className="text-muted-foreground"> {move.code}</span>
+        )}
+      </span>
+      {move.from === undefined ? null : (
+        <>
+          <span className="text-muted-foreground">from</span>
+          <Address value={move.from} />
+        </>
+      )}
+      {move.to === undefined ? null : (
+        <>
+          <span className="text-muted-foreground">to</span>
+          <Address value={move.to} />
+        </>
+      )}
+    </span>
+  );
 }
 
 /** An event as the same code expression a call uses, in the event accent. */
@@ -66,28 +102,50 @@ function flattenCall(
   ];
   // a root occupies no column of its own, so it contributes no guide line
   const childGuides = depth === 0 ? [] : [...guides, !lastSibling];
-  const total = call.events.length + call.calls.length;
-  call.events.forEach((event, index) => {
-    rows.push({
-      key: `${key}-event-${index}`,
-      depth: depth + 1,
-      guides: childGuides,
-      lastSibling: index === total - 1,
-      kind: "event",
-      actor: event.contract ?? call.contract,
-      signature: <EventSignature event={event} />,
-    });
-  });
-  // whatever a contract calls next, it is the one calling
-  call.calls.forEach((sub, index) => {
+  // a frame's events and its sub-calls happened in one order, so they are
+  // put back into it before being drawn; keeping the two lists apart would
+  // show a contract's events before work that ran before them
+  const children = [
+    ...call.events.map((event, index) => ({ event, index, seq: event.seq })),
+    ...call.calls.map((sub, index) => ({ call: sub, index, seq: sub.seq })),
+  ].sort((left, right) => left.seq - right.seq);
+
+  children.forEach((child, position) => {
+    const last = position === children.length - 1;
+    if ("event" in child) {
+      const move = tokenMove(child.event);
+      rows.push({
+        key: `${key}-event-${child.index}`,
+        depth: depth + 1,
+        guides: childGuides,
+        // a movement is the event's child, not its sibling, so it does not
+        // make the event carry a line on to a sibling that is not there
+        lastSibling: last,
+        kind: "event",
+        actor: child.event.contract ?? call.contract,
+        signature: <EventSignature event={child.event} />,
+      });
+      if (move !== undefined) {
+        rows.push({
+          key: `${key}-move-${child.index}`,
+          depth: depth + 2,
+          guides: last ? childGuides : [...childGuides, true],
+          lastSibling: true,
+          kind: "move",
+          signature: <MoveLine move={move} />,
+        });
+      }
+      return;
+    }
+    // whatever a contract calls next, it is the one calling
     rows.push(
       ...flattenCall(
-        sub,
+        child.call,
         call.contract,
         childGuides,
-        call.events.length + index === total - 1,
+        last,
         depth + 1,
-        `${key}.${index}`,
+        `${key}.${child.index}`,
       ),
     );
   });
@@ -116,57 +174,36 @@ export function CallTreeSkeleton() {
 }
 
 const CELL_PADDING = 12; // matches the shared cell's inline padding
-const STEP = 24; // horizontal room one level of nesting takes
-const LINE = 8; // where a connector sits inside its own level
-const STUB = 10; // how far the elbow reaches toward the label
-
-// the elbow points at the row's first line rather than at the middle of
-// the row, so a signature that wraps to two lines does not drag the
-// connector down into the gap between them
-const FIRST_LINE = "calc(0.5rem + 0.5lh)";
 
 function lineStart(level: number) {
-  return CELL_PADDING + LINE + level * STEP;
+  return CELL_PADDING + TREE_LINE + level * TREE_STEP;
 }
 
-// the connectors are positioned against the cell rather than its contents,
-// so they run the full height of the row and meet the row below without a
-// break, whatever makes one row taller than another
 function Connectors({ row }: { row: TraceRow }) {
   return (
     <>
       {row.guides.map((continues, level) =>
-        continues ? (
-          <span
-            key={level}
-            className="absolute inset-y-0 w-px bg-border"
-            style={{ insetInlineStart: lineStart(level) }}
-          />
-        ) : null,
+        continues ? <TreeGuide key={level} start={lineStart(level)} /> : null,
       )}
       {row.depth > 0 ? (
-        <>
-          <span
-            className={cn(
-              "absolute top-0 w-px bg-border",
-              !row.lastSibling && "bottom-0",
-            )}
-            style={{
-              insetInlineStart: lineStart(row.depth - 1),
-              height: row.lastSibling ? FIRST_LINE : undefined,
-            }}
-          />
-          <span
-            className="absolute h-px bg-border"
-            style={{
-              insetInlineStart: lineStart(row.depth - 1),
-              top: FIRST_LINE,
-              width: STUB,
-            }}
-          />
-        </>
+        <TreeElbow start={lineStart(row.depth - 1)} last={row.lastSibling} />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Says that a tree came from the signed authorization data rather than from
+ * the execution itself, which is what is left once the meta has aged out of
+ * RPC retention.
+ */
+export function AuthTraceNote() {
+  return (
+    <p className="pb-3 text-muted-foreground">
+      Reconstructed from the transaction's signed authorization data: only
+      sub-calls that required authorization appear, and return values are
+      unknown.
+    </p>
   );
 }
 
@@ -179,14 +216,23 @@ function Connectors({ row }: { row: TraceRow }) {
 export function CallTree({
   calls,
   invoker,
+  continuation = false,
 }: {
   calls: TraceCall[];
   /** the account that submitted the transaction, so the first call has a caller */
   invoker?: string;
+  /**
+   * the row above already showed the call this tree is of, so the tree
+   * picks up from what that call did rather than repeating it
+   */
+  continuation?: boolean;
 }) {
+  const rows = flatten(calls, invoker).filter(
+    (row) => !continuation || row.depth > 0,
+  );
   return (
-    <DataTable minWidth={MIN_WIDTH} columns={COLUMNS}>
-      {flatten(calls, invoker).map((row) => (
+    <DataTable minWidth={MIN_WIDTH} columns={COLUMNS} headless={continuation}>
+      {rows.map((row) => (
         <DataRow key={row.key} divided={false}>
           <DataCell className="relative py-2">
             <Connectors row={row} />
@@ -194,12 +240,19 @@ export function CallTree({
               className="block"
               // depth is data, so the indent is computed rather than
               // enumerated as a class per level
-              style={{ paddingInlineStart: row.depth * STEP }}
+              style={{ paddingInlineStart: row.depth * TREE_STEP }}
             >
               {row.actor ? <Address value={row.actor} /> : null}
-              <span className="mx-2 text-muted-foreground">
-                {row.kind === "event" ? "event" : "call"}
-              </span>
+              {row.kind === "move" ? null : (
+                <span
+                  className={cn(
+                    "me-2 text-muted-foreground",
+                    row.actor ? "ms-2" : undefined,
+                  )}
+                >
+                  {row.kind === "event" ? "event" : "call"}
+                </span>
+              )}
               {row.target ? <Address value={row.target} /> : null}
               {/* the tint carries its own padding, so the gap before it is
                   narrower than the one between two bare words */}
