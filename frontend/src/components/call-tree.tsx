@@ -230,6 +230,12 @@ export function CallTree({
   const rows = flatten(calls, invoker).filter(
     (row) => !continuation || row.depth > 0,
   );
+  // a continuation only has rows to draw when the call above it went on to
+  // call something else or raise an event; a leaf call has neither, and the
+  // caller decides what, if anything, stands in for the tree here
+  if (rows.length === 0) {
+    return null;
+  }
   return (
     <DataTable minWidth={MIN_WIDTH} columns={COLUMNS} headless={continuation}>
       {rows.map((row) => (

@@ -1,4 +1,4 @@
-import { expect, test, type Route } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { blockLiveHosts, HORIZON_PROVIDERS, RPC_PROVIDERS } from "./hermetic";
 
 const G = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI";
@@ -18,6 +18,28 @@ const U32_SCVAL = "AAAAAwACuds="; // u32 178651
 const RESULT_META_XDR =
   "AAAAAwAAAAAAAAAAAAAAAQAAAAMAAAACAAAABgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAA8AAAAEUGFpbAAAAAAAAAABAAAAAQAAAAkqN3ZPeQMnvPzkeOjhHEPM+0L39uNfeL07eE/5TOaVDQPSadoAAAAAAAAAAAAAAAEAAAAGAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAA8AAAAEUGFpbAAAAAAAAAADAAK52wAAAAAAAAAAAAAAAQAAAAEAAAAAAAAAAAAAtiEAAAAAAAAl/wAAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAAeDgyAAAADgAAAAEAAAAAAAAAAAAAAAIAAAAAAAAAAwAAAA8AAAAHZm5fY2FsbAAAAAANAAAAINeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAADwAAAAdoYXJ2ZXN0AAAAABAAAAABAAAAAQAAAAMAArnbAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAABG1pbnQAAAAQAAAAAQAAAAEAAAADAAK52gAAAAEAAAAAAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAAQAAAAAAAAABAAAADwAAAARtaW50AAAACgAAAAAAAAAAAAAAAACWcwgAAAABAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAEbWludAAAAAoAAAAAAAAAAAAAAAAAlnMIAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAlmbl9yZXR1cm4AAAAAAAAPAAAAB2hhcnZlc3QAAAAACgAAAAAAAAAAAAAAAAB4ODIAAAABAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAADGNvcmVfbWV0cmljcwAAAA8AAAAKcmVhZF9lbnRyeQAAAAAABQAAAAAAAAAYAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAAC3dyaXRlX2VudHJ5AAAAAAUAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAABBsZWRnZXJfcmVhZF9ieXRlAAAABQAAAAAAAAB0AAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAAEWxlZGdlcl93cml0ZV9ieXRlAAAAAAAABQAAAAAAAAB0AAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAACmVtaXRfZXZlbnQAAAAAAAUAAAAAAAAACQAAAAEAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAA9lbWl0X2V2ZW50X2J5dGUAAAAABQAAAAAAAAfIAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAACGNwdV9pbnNuAAAABQAAAAAAnMcAAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAACG1lbV9ieXRlAAAABQAAAAAAyYkRAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAAEWludm9rZV90aW1lX25zZWNzAAAAAAAABQAAAAAAFC/4";
 const CONTRACT_HASH = "cafe".repeat(16);
+// a call that reaches no other contract and raises no event: the summary
+// row already says everything the trace would, so the tree has nothing left
+const LEAF_HASH = "dada".repeat(16);
+const PLANT_SCVAL = "AAAADwAAAAVwbGFudAAAAA=="; // symbol "plant"
+const ZERO_I128_SCVAL = "AAAACgAAAAAAAAAAAAAAAAAAAAA="; // i128 0
+// TransactionMetaV3 with only the top-level fn_call/fn_return pair
+const LEAF_META_XDR =
+  "AAAAAwAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAQAAAAIAAAABAAAAAAAAAAAAAAACAAAAAAAAAAMAAAAPAAAAB2ZuX2NhbGwAAAAADQAAACDX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX1wAAAA8AAAAFcGxhbnQAAAAAAAAQAAAAAQAAAAIAAAASAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAACgAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAFcGxhbnQAAAAAAAAB";
+// a leaf call that still wrote to storage: nothing for the tree to draw,
+// but not nothing the call did
+const LEAF_STORAGE_HASH = "beda".repeat(16);
+// TransactionMetaV3 with the same plant() fn_call/fn_return pair, plus a
+// temporary "Pail" entry created and its ttl extended
+const LEAF_STORAGE_META_XDR =
+  "AAAAAwAAAAAAAAAAAAAAAQAAAAIAAAAAA9LfZgAAAAYAAAAAAAAAAdfX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fXAAAAEAAAAAEAAAADAAAADwAAAARQYWlsAAAAEgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAMAArvxAAAAAAAAABEAAAABAAAAAQAAAA8AAAAFc3Rha2UAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA9LfZgAAAAkiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIgPS32cAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAEAAAACAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19cAAAAPAAAABXBsYW50AAAAAAAAEAAAAAEAAAACAAAAEgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAlmbl9yZXR1cm4AAAAAAAAPAAAABXBsYW50AAAAAAAAAQ==";
+// a call with real sub-calls AND storage changes, so the tree and the
+// storage steps both render in the same row, seam between them included
+const NESTED_STORAGE_HASH = "feed".repeat(16);
+// the harvest()/mint() diagnostic events from RESULT_META_XDR, plus five
+// removed temporary entries and five ttl entries tacked onto the changes
+const NESTED_STORAGE_META_XDR =
+  "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";
 // a transaction whose meta has aged out of RPC retention: the only trace
 // left is the one rebuilt from the envelope's authorization entries
 const AGED_HASH = "face".repeat(16);
@@ -166,14 +188,21 @@ function rpcHandler(route: Route) {
     method?: string;
     params?: { hash?: string };
   };
-  const found = request.params?.hash === CONTRACT_HASH;
+  const metaByHash: Record<string, string> = {
+    [CONTRACT_HASH]: RESULT_META_XDR,
+    [LEAF_HASH]: LEAF_META_XDR,
+    [LEAF_STORAGE_HASH]: LEAF_STORAGE_META_XDR,
+    [NESTED_STORAGE_HASH]: NESTED_STORAGE_META_XDR,
+  };
+  const metaXdr = metaByHash[request.params?.hash ?? ""];
   return route.fulfill({
     json: {
       jsonrpc: "2.0",
       id: request.id,
-      result: found
-        ? { status: "SUCCESS", resultMetaXdr: RESULT_META_XDR }
-        : { status: "NOT_FOUND" },
+      result:
+        metaXdr === undefined
+          ? { status: "NOT_FOUND" }
+          : { status: "SUCCESS", resultMetaXdr: metaXdr },
     },
   });
 }
@@ -430,6 +459,125 @@ test("a trace survives the meta ageing out of RPC retention", async ({
   await expect(aged).toContainText("+5.903971 XLM");
 });
 
+// a plant()-shaped operation, the only thing that differs between the two
+// leaf-call scenarios below is which hash it points at and what that hash's
+// meta holds
+function leafOperation(hash: string) {
+  return {
+    id: "leaf",
+    paging_token: "999",
+    transaction_hash: hash,
+    type: "invoke_host_function",
+    source_account: G,
+    created_at: "2026-08-24T10:00:00Z",
+    transaction: { fee_charged: "189", successful: true },
+    address: "",
+    function: "HostFunctionTypeHostFunctionTypeInvokeContract",
+    parameters: [
+      { type: "Address", value: CONTRACT_SCVAL },
+      { type: "Sym", value: PLANT_SCVAL },
+      { type: "Address", value: CONTRACT_SCVAL },
+      { type: "I128", value: ZERO_I128_SCVAL },
+    ],
+  };
+}
+
+async function routeSingleHistoryOperation(page: Page, record: unknown) {
+  for (const pattern of HORIZON_PROVIDERS) {
+    await page.route(pattern, (route) => {
+      const url = route.request().url();
+      if (url.includes("/operations") && !url.includes("/transactions/")) {
+        return route.fulfill({ json: { _embedded: { records: [record] } } });
+      }
+      return horizonHandler(route);
+    });
+  }
+}
+
+test("a call with nothing further to show says so instead of a blank gap", async ({
+  page,
+}) => {
+  await routeSingleHistoryOperation(page, leafOperation(LEAF_HASH));
+
+  await page.goto(`/account/${G}?tab=history`);
+  const call = page.getByRole("row").nth(1);
+  await expect(call).toContainText("plant(");
+  await call.locator("summary").click({ position: { x: 6, y: 10 } });
+
+  // the call itself made no further calls, raised no events, and touched
+  // no storage, so there is nothing to show below it beyond saying that
+  await expect(call).toContainText(
+    "This call did not make any further calls, emit events, or change storage.",
+  );
+  await expect(call).not.toContainText("No call trace is available");
+});
+
+test("a leaf call that wrote to storage shows what it wrote, not an empty tree", async ({
+  page,
+}) => {
+  await routeSingleHistoryOperation(page, leafOperation(LEAF_STORAGE_HASH));
+
+  await page.goto(`/account/${G}?tab=history`);
+  const call = page.getByRole("row").nth(1);
+  await expect(call).toContainText("plant(");
+  await call.locator("summary").click({ position: { x: 6, y: 10 } });
+
+  // no sub-calls or events for the tree, but the storage write is real
+  // information and belongs here instead of the "nothing happened" message,
+  // read as a step rather than a table pasted in from another page
+  await expect(call).not.toContainText(
+    "This call did not make any further calls",
+  );
+  await expect(call).toContainText("created");
+  await expect(call).toContainText("temporary");
+  await expect(call).toContainText("Pail");
+  await expect(call).toContainText("kept until ledger");
+  await expect(call).toContainText("64,151,399");
+  // no leftover grid table: a step list only, matching the classic
+  // operation steps this same row draws for a non-contract transaction
+  await expect(call.getByRole("columnheader")).toHaveCount(0);
+});
+
+test("storage steps sit under the tree as their own labeled, self-connected groups", async ({
+  page,
+}) => {
+  await routeSingleHistoryOperation(page, {
+    id: "nested-storage",
+    paging_token: "999",
+    transaction_hash: NESTED_STORAGE_HASH,
+    type: "invoke_host_function",
+    source_account: G,
+    created_at: "2026-08-24T10:00:00Z",
+    transaction: { fee_charged: "189", successful: true },
+    address: "",
+    function: "HostFunctionTypeHostFunctionTypeInvokeContract",
+    parameters: [
+      { type: "Address", value: CONTRACT_SCVAL },
+      { type: "Sym", value: HARVEST_SCVAL },
+      { type: "U32", value: U32_SCVAL },
+    ],
+  });
+
+  await page.goto(`/account/${G}?tab=history`);
+  const call = page.getByRole("row").nth(1);
+  await call.locator("summary").click({ position: { x: 6, y: 10 } });
+
+  // the real nested call tree renders...
+  await expect(call).toContainText("mint(178650");
+  // ...and the storage it touched renders too, seam included
+  await expect(call).toContainText("State changes");
+  await expect(call).toContainText("Storage lifetime");
+  await expect(call).toContainText("64,159,000");
+
+  // removed entries and ttl entries are different kinds of things that
+  // just happen to come from the same trace, not siblings of one another,
+  // so each label owns its own <ol> and its own elbow chain rather than
+  // one combined list pretending they are all steps of the same thing;
+  // net change is a third such group, grouped the same consistent way
+  await expect(call).toContainText("Net change");
+  await expect(call.locator("ol")).toHaveCount(3);
+});
+
 test("an opened row leads to the transaction it describes", async ({
   page,
 }) => {
@@ -544,9 +692,9 @@ test("history groups a transaction's operations into one row", async ({
   await expect(page.getByText("created account")).toBeHidden();
   await grouped.locator("summary").click({ position: { x: 6, y: 10 } });
   await expect(page.getByText("created account")).toBeVisible();
-  // the ordered list is the transaction's steps; the net changes below
-  // it are their own list
-  await expect(grouped.locator("ol > li")).toHaveCount(3);
+  // the first ordered list is the transaction's steps; the net changes
+  // below it are their own separate list, grouped the same way
+  await expect(grouped.locator("ol").first().locator("li")).toHaveCount(3);
 });
 
 test("history pages forward and back by cursor", async ({ page }) => {
