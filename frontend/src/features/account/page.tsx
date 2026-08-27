@@ -28,6 +28,7 @@ import {
   type PrimaryOp,
 } from "@/lib/activity";
 import { assetCodeOf } from "@/lib/activity";
+import { netBalanceChanges } from "@/lib/balance-changes";
 import {
   formatAgo,
   formatDecimalDisplay,
@@ -55,10 +56,12 @@ import {
 import { resolveMuxed, type MuxedAddress } from "@/lib/muxed";
 import { classifySearch } from "@/lib/search";
 import { AuthTraceNote, CallTree } from "@/components/call-tree";
-import { NetChanges } from "@/components/net-changes";
-import { CallSignature } from "@/components/scval-view";
+import { NetChangeLine } from "@/components/net-changes";
+import { StateChangeKind } from "@/components/trace-changes";
+import { CallSignature, ScValView } from "@/components/scval-view";
 import { decodeScSymbol, decodeScVal } from "@/lib/scval";
 import { groupByTransaction, type HistoryEntry } from "@/lib/history";
+import type { TraceStateChange, TraceTtl } from "@/lib/tx-trace";
 import { useCursorPages, type CursorPages } from "@/lib/use-cursor-pages";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -611,6 +614,120 @@ function CallLine({ record, op }: { record: OperationRecord; op: PrimaryOp }) {
   );
 }
 
+/**
+ * A storage write or a ttl extension, read as a sentence like the rest of
+ * this row's detail: no columns of its own, so it sits at home next to the
+ * call tree and the classic-operation steps instead of looking like a
+ * table dropped in from another page.
+ */
+function StateChangeStep({ change }: { change: TraceStateChange }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {change.contract ? <Address value={change.contract} /> : null}
+      <StateChangeKind kind={change.kind} />
+      {change.durability ? (
+        <span className="text-muted-foreground">{change.durability}</span>
+      ) : null}
+      <span className="text-muted-foreground">data</span>
+      {change.key ? (
+        <code className="font-mono">
+          <ScValView value={change.key} />
+        </code>
+      ) : null}
+      {change.value === undefined ? null : (
+        <>
+          <span className="text-muted-foreground">=</span>
+          <code className="font-mono">
+            <ScValView value={change.value} />
+          </code>
+        </>
+      )}
+    </span>
+  );
+}
+
+function TtlStep({ ttl }: { ttl: TraceTtl }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {ttl.contract ? <Address value={ttl.contract} /> : null}
+      <span className="text-muted-foreground">
+        {ttl.entry ?? "ledger"} entry
+      </span>
+      <span className="font-mono text-muted-foreground">
+        {truncateMiddle(ttl.keyHash, 8)}
+      </span>
+      <span className="text-muted-foreground">kept until ledger</span>
+      <Link
+        to={appPath(`/ledger/${ttl.liveUntilLedger}`)}
+        className="font-mono text-link transition-colors hover:text-link-hover"
+      >
+        {ttl.liveUntilLedger.toLocaleString("en-US")}
+      </Link>
+    </span>
+  );
+}
+
+/**
+ * A labeled group of steps, connected the same way the call tree and the
+ * classic-operation steps are: an elbow line from one to the next. Each
+ * group starts its own chain rather than continuing whatever came before
+ * it, so the label is what says "new section", not the line -- a change
+ * is never attributed to a specific call in the tree, so a line reaching
+ * up into it would draw a branch to a parent that is not really there.
+ */
+function StepGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode[];
+}) {
+  if (children.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <p className="pb-2 pt-3 font-medium text-foreground/80">{label}</p>
+      <ol>
+        {children.map((child, index) => (
+          <li
+            key={index}
+            className="relative py-2"
+            style={{ paddingInlineStart: TREE_STEP }}
+          >
+            <TreeElbow start={TREE_LINE} last={index === children.length - 1} />
+            {child}
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+/** What a call wrote to storage: what changed, and how long it is kept. */
+function StorageSteps({
+  stateChanges,
+  ttlExtensions,
+}: {
+  stateChanges: TraceStateChange[];
+  ttlExtensions: TraceTtl[];
+}) {
+  return (
+    <>
+      <StepGroup label="State changes">
+        {stateChanges.map((change, index) => (
+          <StateChangeStep key={index} change={change} />
+        ))}
+      </StepGroup>
+      <StepGroup label="Storage lifetime">
+        {ttlExtensions.map((ttl, index) => (
+          <TtlStep key={index} ttl={ttl} />
+        ))}
+      </StepGroup>
+    </>
+  );
+}
+
 function HistoryDetail({
   hash,
   invokes,
@@ -653,11 +770,28 @@ function HistoryDetail({
   }
   if (invokes) {
     const trace = soroban.data?.trace ?? null;
+    // a leaf call has no sub-calls or events for the tree to draw, but it
+    // can still have written to storage; only once that is empty too is
+    // there truly nothing this call did beyond what the row above said
+    const hasSubActivity =
+      trace !== null &&
+      trace.calls.some(
+        (call) => call.calls.length > 0 || call.events.length > 0,
+      );
+    const hasStorage =
+      trace !== null &&
+      (trace.stateChanges.length > 0 || trace.ttlExtensions.length > 0);
+    const hasNothing = trace !== null && !hasSubActivity && !hasStorage;
     return (
       <div className="pt-1">
-        {trace === null || trace.calls.length === 0 ? (
+        {trace === null ? (
           <p className="pb-2 text-muted-foreground">
             No call trace is available for this transaction.
+          </p>
+        ) : hasNothing ? (
+          <p className="pb-2 text-muted-foreground">
+            This call did not make any further calls, emit events, or change
+            storage.
           </p>
         ) : (
           <>
@@ -665,6 +799,10 @@ function HistoryDetail({
                 and saying so belongs wherever the tree is shown */}
             {trace.source === "auth" ? <AuthTraceNote /> : null}
             <CallTree calls={trace.calls} invoker={invoker} continuation />
+            <StorageSteps
+              stateChanges={trace.stateChanges}
+              ttlExtensions={trace.ttlExtensions}
+            />
           </>
         )}
         <BalanceMoves hash={hash} />
@@ -713,17 +851,22 @@ function HistoryDetail({
 /**
  * What the transaction moved, from the effects Horizon keeps for good. It is
  * the part of a transaction that survives the execution meta ageing out, so
- * an old contract call still says what changed hands.
+ * an old contract call still says what changed hands. Grouped the same way
+ * the storage steps above it are, so every section under the tree reads
+ * consistently rather than this one alone sitting in a bare, lineless list.
  */
 function BalanceMoves({ hash }: { hash: string }) {
   const effects = useQuery(txEffectsQuery(ACTIVE_NETWORK, hash));
   if (!effects.isSuccess) {
     return null;
   }
+  const changes = netBalanceChanges(effects.data._embedded.records);
   return (
-    <div className="pt-2">
-      <NetChanges effects={effects.data._embedded.records} />
-    </div>
+    <StepGroup label="Net change">
+      {changes.map((change, index) => (
+        <NetChangeLine key={index} change={change} />
+      ))}
+    </StepGroup>
   );
 }
 

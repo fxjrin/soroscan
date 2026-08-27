@@ -23,7 +23,11 @@ import {
   EventSignature,
 } from "@/components/call-tree";
 import { JsonTree, JsonTreeSkeleton } from "@/components/json-tree";
-import { CallSignature, ScValView } from "@/components/scval-view";
+import { CallSignature } from "@/components/scval-view";
+import {
+  TraceSectionLabel,
+  TraceStorageChanges,
+} from "@/components/trace-changes";
 import { ActionSummary } from "@/components/action-summary";
 import { NetChanges } from "@/components/net-changes";
 import { EntityShell, Row, ValueBar } from "@/features/entity-shell";
@@ -60,12 +64,7 @@ import {
 } from "@/lib/queries";
 import { decodeScSymbol, decodeScVal } from "@/lib/scval";
 import { addressHint, extractSignatureHints } from "@/lib/signatures";
-import {
-  countTraceCalls,
-  type TraceFees,
-  type TraceStateChange,
-  type TraceTtl,
-} from "@/lib/tx-trace";
+import { countTraceCalls, type TraceFees } from "@/lib/tx-trace";
 import { balanceHolderOf, operationIdOf } from "@/lib/balance-changes";
 import { classifySearch } from "@/lib/search";
 import { cn } from "@/lib/utils";
@@ -115,79 +114,6 @@ function FunctionCall({
         </span>
       </Row>
     </>
-  );
-}
-
-function TraceSectionLabel({ children }: { children: ReactNode }) {
-  return <p className="pb-2 pt-5 font-medium text-foreground/80">{children}</p>;
-}
-
-const STATE_CHANGE_STYLES: Record<TraceStateChange["kind"], string> = {
-  created: "text-emerald-700 dark:text-emerald-400",
-  updated: "text-muted-foreground",
-  restored: "text-sky-700 dark:text-sky-400",
-  removed: "text-red-600 dark:text-red-400",
-};
-
-function StateChangeRow({ change }: { change: TraceStateChange }) {
-  return (
-    <DataRow>
-      <DataCell>
-        <span className={STATE_CHANGE_STYLES[change.kind]}>{change.kind}</span>
-      </DataCell>
-      <DataCell>
-        {change.contract ? <Address value={change.contract} /> : <NoValue />}
-      </DataCell>
-      <DataCell>
-        {change.key ? (
-          <code className="font-mono">
-            <ScValView value={change.key} />
-          </code>
-        ) : (
-          <NoValue />
-        )}
-      </DataCell>
-      <DataCell>
-        {change.value ? (
-          <code className="font-mono">
-            <ScValView value={change.value} />
-          </code>
-        ) : (
-          <NoValue />
-        )}
-      </DataCell>
-      <DataCell>
-        {change.durability ? (
-          <span className="text-muted-foreground">{change.durability}</span>
-        ) : (
-          <NoValue />
-        )}
-      </DataCell>
-    </DataRow>
-  );
-}
-
-function TtlRow({ ttl }: { ttl: TraceTtl }) {
-  return (
-    <DataRow>
-      <DataCell>
-        {ttl.contract ? <Address value={ttl.contract} /> : <NoValue />}
-      </DataCell>
-      <DataCell>
-        <span className="text-muted-foreground">{ttl.entry ?? "ledger"}</span>
-      </DataCell>
-      <DataCell className="font-mono text-muted-foreground">
-        {truncateMiddle(ttl.keyHash, 8)}
-      </DataCell>
-      <DataCell numeric>
-        <Link
-          to={appPath(`/ledger/${ttl.liveUntilLedger}`)}
-          className="font-mono text-link transition-colors hover:text-link-hover"
-        >
-          {ttl.liveUntilLedger.toLocaleString("en-US")}
-        </Link>
-      </DataCell>
-    </DataRow>
   );
 }
 
@@ -370,43 +296,10 @@ function TracePanel({
           </DataTable>
         </>
       ) : null}
-      {trace.stateChanges.length > 0 ? (
-        <>
-          <TraceSectionLabel>State changes</TraceSectionLabel>
-          <DataTable
-            minWidth="min-w-[52rem]"
-            columns={[
-              { label: "Change" },
-              { label: "Contract" },
-              { label: "Key" },
-              { label: "Value" },
-              { label: "Durability" },
-            ]}
-          >
-            {trace.stateChanges.map((change, index) => (
-              <StateChangeRow key={index} change={change} />
-            ))}
-          </DataTable>
-        </>
-      ) : null}
-      {trace.ttlExtensions.length > 0 ? (
-        <>
-          <TraceSectionLabel>Storage lifetime</TraceSectionLabel>
-          <DataTable
-            minWidth="min-w-[44rem]"
-            columns={[
-              { label: "Contract" },
-              { label: "Entry" },
-              { label: "Key hash" },
-              { label: "Live until ledger", numeric: true },
-            ]}
-          >
-            {trace.ttlExtensions.map((ttl, index) => (
-              <TtlRow key={index} ttl={ttl} />
-            ))}
-          </DataTable>
-        </>
-      ) : null}
+      <TraceStorageChanges
+        stateChanges={trace.stateChanges}
+        ttlExtensions={trace.ttlExtensions}
+      />
       <ResourcesSection metrics={trace.metrics} fees={trace.fees} />
     </div>
   );
