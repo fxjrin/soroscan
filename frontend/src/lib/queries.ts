@@ -20,10 +20,24 @@ import {
 } from "@/lib/activity";
 import { chainNow } from "@/lib/clock";
 import {
+  fetchEvents,
   fetchFeeStats,
   fetchHealth,
+  fetchLedgerEntries,
   fetchRpcTransaction,
+  type RpcHealth,
 } from "@/lib/rpc/client";
+import type { HistoryEntry } from "@/lib/history";
+import {
+  contractCodeKey,
+  contractInstanceKey,
+  contractInterface,
+  decodeContractCode,
+  decodeContractInstance,
+  type ContractCode,
+  type ContractInterfaceInfo,
+  type ContractInstance,
+} from "@/lib/contract";
 import { decodeReturnValue } from "@/lib/tx-meta";
 import { fetchArchivedMeta } from "@/lib/ledger-lake";
 import { decodeTrace, type TxTrace } from "@/lib/tx-trace";
@@ -327,6 +341,235 @@ export function accountOffersQuery(
     queryKey: [network, "horizon", "account", address, "offers", cursor],
     queryFn: ({ signal }) =>
       fetchAccountOffers(network, address, limit, cursor, signal),
+    staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
+export interface ContractInstanceDetails {
+  /** undefined when no live entry exists: never deployed, or deployed and
+   * since archived for going unread past its ttl */
+  instance: ContractInstance | undefined;
+  lastModifiedLedgerSeq?: number;
+  liveUntilLedgerSeq?: number;
+}
+
+// the instance is live ledger state, not a historical lookup: it does not
+// age out the way a transaction's meta does, so this reads current state
+// on the same short cadence account balances do
+export function contractInstanceQuery(network: NetworkId, contractId: string) {
+  return queryOptions({
+    queryKey: [network, "rpc", "contract", contractId, "instance"],
+    queryFn: async ({ signal }): Promise<ContractInstanceDetails> => {
+      const key = await contractInstanceKey(contractId);
+      const [entry] = await fetchLedgerEntries(network, [key], signal);
+      if (entry === undefined) {
+        return { instance: undefined };
+      }
+      return {
+        instance: await decodeContractInstance(entry.dataXdr),
+        lastModifiedLedgerSeq: entry.lastModifiedLedgerSeq,
+        liveUntilLedgerSeq: entry.liveUntilLedgerSeq,
+      };
+    },
+    staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
+export interface ContractCodeDetails {
+  code: ContractCode | undefined;
+  /** undefined when the wasm has no spec section, or is too malformed to parse */
+  interface: ContractInterfaceInfo | undefined;
+}
+
+// keyed by hash alone, not by contract id: every contract deployed from
+// the same wasm shares this entry, and the wasm at a given hash never
+// changes once it exists
+export function contractCodeQuery(network: NetworkId, wasmHash: string) {
+  return queryOptions({
+    queryKey: [network, "rpc", "contract-code", wasmHash],
+    queryFn: async ({ signal }): Promise<ContractCodeDetails> => {
+      const key = await contractCodeKey(wasmHash);
+      const [entry] = await fetchLedgerEntries(network, [key], signal);
+      const code =
+        entry === undefined
+          ? undefined
+          : await decodeContractCode(entry.dataXdr);
+      const contractInterfaceInfo =
+        code === undefined
+          ? undefined
+          : await contractInterface(code.wasmBytes);
+      return { code, interface: contractInterfaceInfo };
+    },
+    staleTime: Infinity,
+  });
+}
+
+export const LEDGERS_PER_DAY = 17280; // five seconds per ledger
+
+// first attempt at how far back to scan: most contracts that are active
+// at all raised an event within a day, so this keeps the common case to
+// one request instead of always walking the provider's whole retention
+const INITIAL_EVENT_LEDGERS = LEDGERS_PER_DAY;
+export const EVENTS_PAGE = 20;
+
+export interface ContractInvocations {
+  /** one row per transaction that raised an event, most recent first */
+  entries: HistoryEntry[];
+  /** how many raw events the page held, before grouping by transaction */
+  rawEventCount: number;
+  nextCursor?: string;
+  /** the provider's own retention ceiling, not just what this page scanned */
+  window: { fromLedger: number; toLedger: number };
+}
+
+// one call only scans a bounded slice of the requested ledger range and
+// returns a cursor regardless of whether it found anything, so an empty
+// page does not mean an empty range: keep following the cursor until an
+// event turns up or the provider stops making progress, which is how it
+// signals the scan has caught up to the tip with nothing to show for it
+async function drainForEvents(
+  network: NetworkId,
+  contractId: string,
+  range: { startLedger: number } | { cursor: string },
+  limit: number,
+  signal: AbortSignal | undefined,
+) {
+  let currentRange = range;
+  let previousCursor: string | undefined;
+  while (true) {
+    const page = await fetchEvents(
+      network,
+      contractId,
+      currentRange,
+      limit,
+      signal,
+    );
+    if (
+      page.events.length > 0 ||
+      page.cursor === undefined ||
+      page.cursor === previousCursor
+    ) {
+      return page;
+    }
+    previousCursor = page.cursor;
+    currentRange = { cursor: page.cursor };
+  }
+}
+
+// the provider's retention floor keeps advancing while a full-window
+// drain is in flight; asking for exactly oldestLedger risks a request
+// landing after that ledger has already aged out, so the floor used here
+// stays a safe distance behind it rather than chasing the exact edge
+const RETENTION_FLOOR_MARGIN = 2000;
+
+// a quiet contract's last event can sit anywhere in the provider's
+// retention window, not just the last day: a contract that raised
+// nothing at all in a day falls through to a full scan of the whole
+// window before a reader is told there is genuinely nothing to find
+async function findRecentEvents(
+  network: NetworkId,
+  contractId: string,
+  health: RpcHealth,
+  limit: number,
+  signal: AbortSignal | undefined,
+) {
+  const floor = health.oldestLedger + RETENTION_FLOOR_MARGIN;
+  const recentFrom = Math.max(
+    floor,
+    health.latestLedger - INITIAL_EVENT_LEDGERS,
+  );
+  const recent = await drainForEvents(
+    network,
+    contractId,
+    { startLedger: recentFrom },
+    limit,
+    signal,
+  );
+  if (recent.events.length > 0 || recentFrom <= floor) {
+    return recent;
+  }
+  return drainForEvents(
+    network,
+    contractId,
+    { startLedger: floor },
+    limit,
+    signal,
+  );
+}
+
+/**
+ * Transactions this contract's own events showed up in. This is not every
+ * call the contract received: a call that raises no event of its own
+ * leaves nothing here to find, and nothing older than the provider's own
+ * retention window is reachable at all, no matter how the search widens.
+ */
+export function contractInvocationsQuery(
+  network: NetworkId,
+  contractId: string,
+  cursor?: string,
+) {
+  return queryOptions({
+    queryKey: [network, "rpc", "contract", contractId, "invocations", cursor],
+    queryFn: async ({ signal }): Promise<ContractInvocations> => {
+      const health = await fetchHealth(network, signal);
+      const page =
+        cursor === undefined
+          ? await findRecentEvents(
+              network,
+              contractId,
+              health,
+              EVENTS_PAGE,
+              signal,
+            )
+          : await fetchEvents(
+              network,
+              contractId,
+              { cursor },
+              EVENTS_PAGE,
+              signal,
+            );
+      // newest first: the scan itself walks oldest to newest, since the
+      // rpc has no reverse order, but a reader expects recent activity
+      // at the top the way every other list on this explorer reads
+      const hashes = [...new Set(page.events.map((event) => event.txHash))]
+        .slice()
+        .reverse();
+      const operations = await Promise.all(
+        hashes.map(async (hash) => {
+          try {
+            const page = await fetchTransactionOperations(
+              network,
+              hash,
+              1,
+              signal,
+            );
+            return page._embedded.records[0];
+          } catch {
+            return undefined; // one unreachable transaction should not sink the page
+          }
+        }),
+      );
+      const entries: HistoryEntry[] = [];
+      hashes.forEach((hash, index) => {
+        const operation = operations[index];
+        if (operation !== undefined) {
+          entries.push({
+            hash,
+            lastToken: operation.paging_token,
+            operations: [operation],
+          });
+        }
+      });
+      return {
+        entries,
+        rawEventCount: page.events.length,
+        nextCursor: page.cursor,
+        window: {
+          fromLedger: health.oldestLedger,
+          toLedger: health.latestLedger,
+        },
+      };
+    },
     staleTime: LEDGER_CLOSE_MS,
   });
 }

@@ -132,3 +132,119 @@ export async function fetchHealth(
   }
   return health;
 }
+
+export interface RpcLedgerEntry {
+  dataXdr: string;
+  lastModifiedLedgerSeq: number;
+  liveUntilLedgerSeq?: number;
+}
+
+/**
+ * A ledger key with no live entry is a valid answer, not a provider
+ * failure: the caller learns this from an empty `entries` array, never
+ * an error. Reads the current, tip-of-chain ledger state, so a caller
+ * should not cache the answer as if it were immutable.
+ */
+export async function fetchLedgerEntries(
+  network: NetworkId,
+  keys: string[],
+  signal?: AbortSignal,
+): Promise<RpcLedgerEntry[]> {
+  const result = await rpcCall<{
+    entries?: Array<{
+      xdr?: string;
+      lastModifiedLedgerSeq?: number;
+      liveUntilLedgerSeq?: number;
+    }>;
+  }>(network, "getLedgerEntries", { keys }, signal);
+  if (!Array.isArray(result?.entries)) {
+    throw new UpstreamError("getLedgerEntries: malformed response body");
+  }
+  return result.entries.map((entry) => {
+    if (
+      typeof entry.xdr !== "string" ||
+      typeof entry.lastModifiedLedgerSeq !== "number"
+    ) {
+      throw new UpstreamError("getLedgerEntries: malformed entry");
+    }
+    return {
+      dataXdr: entry.xdr,
+      lastModifiedLedgerSeq: entry.lastModifiedLedgerSeq,
+      liveUntilLedgerSeq: entry.liveUntilLedgerSeq,
+    };
+  });
+}
+
+export interface RpcEvent {
+  ledger: number;
+  ledgerClosedAt: string;
+  txHash: string;
+  /** base64 XDR ScVal, one per topic */
+  topic: string[];
+  /** base64 XDR ScVal */
+  value: string;
+}
+
+export interface RpcEventsPage {
+  events: RpcEvent[];
+  /** absent once the requested range is fully read */
+  cursor?: string;
+}
+
+/**
+ * Events a contract raised itself -- never events from a contract it
+ * called, and never a call that raised no event of its own. The first
+ * page of a scan starts at `startLedger`; every page after continues
+ * from the `cursor` the previous page returned, which also fixes the
+ * filter, so only one of the two is ever sent.
+ */
+export async function fetchEvents(
+  network: NetworkId,
+  contractId: string,
+  range: { startLedger: number } | { cursor: string },
+  limit: number,
+  signal?: AbortSignal,
+): Promise<RpcEventsPage> {
+  const result = await rpcCall<{
+    events?: Array<{
+      ledger?: number;
+      ledgerClosedAt?: string;
+      txHash?: string;
+      topic?: string[];
+      value?: string;
+    }>;
+    cursor?: string;
+  }>(
+    network,
+    "getEvents",
+    {
+      ...("startLedger" in range ? { startLedger: range.startLedger } : {}),
+      filters: [{ type: "contract", contractIds: [contractId] }],
+      pagination:
+        "cursor" in range ? { cursor: range.cursor, limit } : { limit },
+    },
+    signal,
+  );
+  if (!Array.isArray(result?.events)) {
+    throw new UpstreamError("getEvents: malformed response body");
+  }
+  const events = result.events.map((event) => {
+    if (
+      typeof event.ledger !== "number" ||
+      typeof event.ledgerClosedAt !== "string" ||
+      typeof event.txHash !== "string" ||
+      !Array.isArray(event.topic) ||
+      typeof event.value !== "string"
+    ) {
+      throw new UpstreamError("getEvents: malformed entry");
+    }
+    return {
+      ledger: event.ledger,
+      ledgerClosedAt: event.ledgerClosedAt,
+      txHash: event.txHash,
+      topic: event.topic,
+      value: event.value,
+    };
+  });
+  return { events, cursor: result.cursor };
+}
