@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 // DefaultBaseURL is the AWS public blockchain mirror of pubnet ledgers.

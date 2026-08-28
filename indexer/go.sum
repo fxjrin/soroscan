@@ -26,10 +26,10 @@ github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINE
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/stellar/go v0.0.0-20251210100531-aab2ea4aca88 h1:T7CDnX+NSQlu9pxLlxZN0qt6SeUoQ6lxwZjY+Y9Ky54=
-github.com/stellar/go v0.0.0-20251210100531-aab2ea4aca88/go.mod h1:pcoYvfcsyFzzSut3RBWF9Ts8g4Z7SWbkb8Hitu7k4BU=
-github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 h1:OzCVd0SV5qE3ZcDeSFCmOWLZfEWZ3Oe8KtmSOYKEVWE=
-github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2/go.mod h1:yoxyU/M8nl9LKeWIoBrbDPQ7Cy+4jxRcWcOayZ4BMps=
+github.com/stellar/go-stellar-sdk v0.7.4-0.20260825061852-f479ee9335f3 h1:UZH3dIn0PHPqF4ZkuZ6DkhVKtP7UmC0BXuFyInEtbwI=
+github.com/stellar/go-stellar-sdk v0.7.4-0.20260825061852-f479ee9335f3/go.mod h1:YTYl7/zFt7oIX5Y4WRgL+3d2upWQDLywlHunZ4fOxvc=
+github.com/stellar/go-xdr v0.0.0-20260806060815-dc590f17552a h1:40YIhQusSioBKDW5Tr+YdjoXphcVeu7eXUS2ibMQBTs=
+github.com/stellar/go-xdr v0.0.0-20260806060815-dc590f17552a/go.mod h1:If+U9Z1W5xU97VrOgJandQT+2dN7/iOpkCrxBJEyF80=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=

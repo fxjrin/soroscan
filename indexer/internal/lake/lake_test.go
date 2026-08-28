@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 func TestObjectKey(t *testing.T) {

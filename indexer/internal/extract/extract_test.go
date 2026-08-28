@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/soroscan-io/soroscan/indexer/internal/lake"
 )
