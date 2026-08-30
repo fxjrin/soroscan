@@ -130,7 +130,11 @@ test("renders a closed ledger with stats, mix, and transactions", async ({
 
   await page.goto("/ledger/64000000");
 
-  await expect(page.getByText("Aug 18, 2026, 10:00:00 UTC")).toBeVisible();
+  // the same instant renders in the age column of every mocked row, so
+  // the meta line assertion pins the first occurrence
+  await expect(
+    page.getByText("Aug 18, 2026, 10:00:00 UTC").first(),
+  ).toBeVisible();
   // the close duration comes from the gap to the previous ledger
   await expect(page.getByText("5.3s")).toBeVisible();
   await expect(page.getByText("+30")).toBeVisible();
