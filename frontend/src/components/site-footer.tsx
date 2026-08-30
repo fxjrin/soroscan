@@ -18,12 +18,12 @@ function GithubIcon({ className }: { className?: string }) {
 const LINKS = [
   {
     label: "GitHub",
-    href: "https://github.com/fxjrin/soroscan",
+    href: "https://github.com/soroscan-io/soroscan",
     icon: GithubIcon,
   },
   {
     label: "Report an issue",
-    href: "https://github.com/fxjrin/soroscan/issues/new/choose",
+    href: "https://github.com/soroscan-io/soroscan/issues/new/choose",
     icon: Bug,
   },
   {

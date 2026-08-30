@@ -6,7 +6,7 @@ Thanks for your interest. This document keeps contributions smooth for everyone.
 
 - English only in code, comments, commits, branches, issues, and PRs.
 - Be respectful; see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-- Security vulnerabilities go through [private vulnerability reporting](https://github.com/fxjrin/soroscan/security/advisories/new), never public issues.
+- Security vulnerabilities go through [private vulnerability reporting](https://github.com/soroscan-io/soroscan/security/advisories/new), never public issues.
 
 ## Issues
 
