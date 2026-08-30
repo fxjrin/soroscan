@@ -58,18 +58,22 @@
 }
 
 :root {
+  color-scheme: light;
   --background: #fafafa;
   --foreground: #18181b;
   --card: #ffffff;
   --card-foreground: #18181b;
   --popover: #ffffff;
   --popover-foreground: #18181b;
-  --primary: #9c7100;
-  /* the link blue proven across light and dark product UIs; both themes
-     share hue 212 and clear AA on the page, card, and muted surfaces */
-  --link: #0969da;
-  --link-hover: #0550ae;
-  --primary-foreground: #fffbeb;
+  /* the same brand gold as dark: it only ever fills shapes or sits under
+     dark text, so the light theme keeps the identity instead of an olive
+     stand-in; the focus ring stays the deep gold for visibility */
+  --primary: #f5c84c;
+  /* hue 212 like dark, one step deeper than the classic product blue: at
+     this link density a brighter blue reads as glare on white */
+  --link: #0550ae;
+  --link-hover: #033d8b;
+  --primary-foreground: #1c1400;
   --secondary: #f4f4f5;
   --secondary-foreground: #27272a;
   --muted: #f4f4f5;
@@ -97,6 +101,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #09090b;
   --foreground: #f4f4f5;
   --card: #131316;
