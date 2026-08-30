@@ -294,7 +294,9 @@ export function HomePage() {
         </p>
         <SearchBox className="w-full" />
         <div className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground">
-          <span className="whitespace-nowrap">pre-alpha</span>
+          <span className="whitespace-nowrap">
+            beta <span className="font-mono">v{__APP_VERSION__}</span>
+          </span>
           {head ? (
             <>
               <span aria-hidden="true">{"\u00b7"}</span>
