@@ -20,14 +20,13 @@ import {
 } from "@/lib/activity";
 import { chainNow } from "@/lib/clock";
 import {
-  fetchEvents,
   fetchFeeStats,
   fetchHealth,
   fetchLedgerEntries,
   fetchRpcTransaction,
-  type RpcHealth,
 } from "@/lib/rpc/client";
 import type { HistoryEntry } from "@/lib/history";
+import { fetchContractTransactions } from "@/lib/indexer/client";
 import {
   contractCodeKey,
   contractInstanceKey,
@@ -404,104 +403,18 @@ export function contractCodeQuery(network: NetworkId, wasmHash: string) {
   });
 }
 
-export const LEDGERS_PER_DAY = 17280; // five seconds per ledger
-
-// first attempt at how far back to scan: most contracts that are active
-// at all raised an event within a day, so this keeps the common case to
-// one request instead of always walking the provider's whole retention
-const INITIAL_EVENT_LEDGERS = LEDGERS_PER_DAY;
-export const EVENTS_PAGE = 20;
-
 export interface ContractInvocations {
-  /** one row per transaction that raised an event, most recent first */
+  /** one row per top-level invocation of the contract, most recent first */
   entries: HistoryEntry[];
-  /** how many raw events the page held, before grouping by transaction */
-  rawEventCount: number;
+  /** how many transactions the indexer page held before Horizon lookups */
+  txCount: number;
   nextCursor?: string;
-  /** the provider's own retention ceiling, not just what this page scanned */
-  window: { fromLedger: number; toLedger: number };
-}
-
-// one call only scans a bounded slice of the requested ledger range and
-// returns a cursor regardless of whether it found anything, so an empty
-// page does not mean an empty range: keep following the cursor until an
-// event turns up or the provider stops making progress, which is how it
-// signals the scan has caught up to the tip with nothing to show for it
-async function drainForEvents(
-  network: NetworkId,
-  contractId: string,
-  range: { startLedger: number } | { cursor: string },
-  limit: number,
-  signal: AbortSignal | undefined,
-) {
-  let currentRange = range;
-  let previousCursor: string | undefined;
-  while (true) {
-    const page = await fetchEvents(
-      network,
-      contractId,
-      currentRange,
-      limit,
-      signal,
-    );
-    if (
-      page.events.length > 0 ||
-      page.cursor === undefined ||
-      page.cursor === previousCursor
-    ) {
-      return page;
-    }
-    previousCursor = page.cursor;
-    currentRange = { cursor: page.cursor };
-  }
-}
-
-// the provider's retention floor keeps advancing while a full-window
-// drain is in flight; asking for exactly oldestLedger risks a request
-// landing after that ledger has already aged out, so the floor used here
-// stays a safe distance behind it rather than chasing the exact edge
-const RETENTION_FLOOR_MARGIN = 2000;
-
-// a quiet contract's last event can sit anywhere in the provider's
-// retention window, not just the last day: a contract that raised
-// nothing at all in a day falls through to a full scan of the whole
-// window before a reader is told there is genuinely nothing to find
-async function findRecentEvents(
-  network: NetworkId,
-  contractId: string,
-  health: RpcHealth,
-  limit: number,
-  signal: AbortSignal | undefined,
-) {
-  const floor = health.oldestLedger + RETENTION_FLOOR_MARGIN;
-  const recentFrom = Math.max(
-    floor,
-    health.latestLedger - INITIAL_EVENT_LEDGERS,
-  );
-  const recent = await drainForEvents(
-    network,
-    contractId,
-    { startLedger: recentFrom },
-    limit,
-    signal,
-  );
-  if (recent.events.length > 0 || recentFrom <= floor) {
-    return recent;
-  }
-  return drainForEvents(
-    network,
-    contractId,
-    { startLedger: floor },
-    limit,
-    signal,
-  );
 }
 
 /**
- * Transactions this contract's own events showed up in. This is not every
- * call the contract received: a call that raises no event of its own
- * leaves nothing here to find, and nothing older than the provider's own
- * retention window is reachable at all, no matter how the search widens.
+ * Transactions that invoked this contract directly, newest first, across
+ * the contract's entire history. A cross-contract call does not appear
+ * here: the contract the transaction invoked directly is the one indexed.
  */
 export function contractInvocationsQuery(
   network: NetworkId,
@@ -509,52 +422,42 @@ export function contractInvocationsQuery(
   cursor?: string,
 ) {
   return queryOptions({
-    queryKey: [network, "rpc", "contract", contractId, "invocations", cursor],
+    queryKey: [
+      network,
+      "indexer",
+      "contract",
+      contractId,
+      "invocations",
+      cursor,
+    ],
     queryFn: async ({ signal }): Promise<ContractInvocations> => {
-      const health = await fetchHealth(network, signal);
-      const page =
-        cursor === undefined
-          ? await findRecentEvents(
-              network,
-              contractId,
-              health,
-              EVENTS_PAGE,
-              signal,
-            )
-          : await fetchEvents(
-              network,
-              contractId,
-              { cursor },
-              EVENTS_PAGE,
-              signal,
-            );
-      // newest first: the scan itself walks oldest to newest, since the
-      // rpc has no reverse order, but a reader expects recent activity
-      // at the top the way every other list on this explorer reads
-      const hashes = [...new Set(page.events.map((event) => event.txHash))]
-        .slice()
-        .reverse();
+      const page = await fetchContractTransactions(
+        network,
+        contractId,
+        cursor,
+        signal,
+      );
       const operations = await Promise.all(
-        hashes.map(async (hash) => {
+        page.transactions.map(async (transaction) => {
           try {
-            const page = await fetchTransactionOperations(
+            const operationsPage = await fetchTransactionOperations(
               network,
-              hash,
+              transaction.txHash,
               1,
               signal,
             );
-            return page._embedded.records[0];
+            return operationsPage._embedded.records[0];
           } catch {
             return undefined; // one unreachable transaction should not sink the page
           }
         }),
       );
       const entries: HistoryEntry[] = [];
-      hashes.forEach((hash, index) => {
+      page.transactions.forEach((transaction, index) => {
         const operation = operations[index];
         if (operation !== undefined) {
           entries.push({
-            hash,
+            hash: transaction.txHash,
             lastToken: operation.paging_token,
             operations: [operation],
           });
@@ -562,14 +465,11 @@ export function contractInvocationsQuery(
       });
       return {
         entries,
-        rawEventCount: page.events.length,
-        nextCursor: page.cursor,
-        window: {
-          fromLedger: health.oldestLedger,
-          toLedger: health.latestLedger,
-        },
+        txCount: page.transactions.length,
+        nextCursor: page.nextCursor,
       };
     },
-    staleTime: LEDGER_CLOSE_MS,
+    // pages behind a cursor are settled history; only the newest page moves
+    staleTime: cursor === undefined ? LEDGER_CLOSE_MS : Infinity,
   });
 }

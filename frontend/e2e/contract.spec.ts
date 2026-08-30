@@ -1,7 +1,12 @@
 import { expect, test, type Route } from "@playwright/test";
 import * as xdr from "@stellar/stellar-sdk/xdr";
 import { StrKey } from "@stellar/stellar-sdk/base";
-import { blockLiveHosts, HORIZON_PROVIDERS, RPC_PROVIDERS } from "./hermetic";
+import {
+  blockLiveHosts,
+  HORIZON_PROVIDERS,
+  INDEXER,
+  RPC_PROVIDERS,
+} from "./hermetic";
 
 const WASM_CONTRACT =
   "CBGSBKYMYO6OMGHQXXNOBRGVUDFUDVC2XLC3SXON5R2SNXILR7XCKKY3";
@@ -89,19 +94,43 @@ const ENTRY_BY_KEY: Record<
   // with an empty array, a valid response, not a provider failure
 };
 
-// only WASM_CONTRACT ever raised an event in this fixture; every other
-// contract answers with an empty page, same as one that never emits
-const EVENT_CONTRACTS = new Set([WASM_CONTRACT]);
-
-// this contract's one event sits well outside the recent-day tier, and
-// past a single scan hop within the full-window tier: proves both that a
-// real provider's bounded per-call scan is fully drained via its cursor,
-// and that the fallback tier reaches older activity the first tier misses
 const LATE_EVENT_CONTRACT =
   "CDG43TONZXG43TONZXG43TONZXG43TONZXG43TONZXG43TONZXG42EVB";
 const LATE_EVENT_HASH = "bbcc".repeat(16);
-const LATE_EVENT_VISIBLE_FROM = 50_000;
-const MOCK_SCAN_HOP = 10_000; // mirrors a real provider's bounded per-call scan
+
+// one indexed invocation per fixture contract; the SAC has none, which is
+// how the indexer reports a contract only ever reached through
+// cross-contract calls
+const INDEXED_BY_CONTRACT: Record<
+  string,
+  Array<{ hash: string; ledger: number }>
+> = {
+  [WASM_CONTRACT]: [{ hash: INVOCATION_HASH, ledger: 99_000 }],
+  [LATE_EVENT_CONTRACT]: [{ hash: LATE_EVENT_HASH, ledger: 50_000 }],
+};
+
+function indexerHandler(route: Route) {
+  const url = new URL(route.request().url());
+  const match = /^[/]contracts[/]([A-Z0-9]+)[/]transactions$/.exec(
+    url.pathname,
+  );
+  if (match === null) {
+    return route.fulfill({ status: 404, json: { error: "no such route" } });
+  }
+  const rows = INDEXED_BY_CONTRACT[match[1]] ?? [];
+  return route.fulfill({
+    json: {
+      transactions: rows.map((row) => ({
+        tx_hash: row.hash,
+        ledger: row.ledger,
+        closed_at: "2026-08-24T10:00:00Z",
+        function: "harvest",
+        args: [CALLER, "1"],
+        fee_charged: "189",
+      })),
+    },
+  });
+}
 
 function rpcHandler(route: Route) {
   const request = JSON.parse(route.request().postData() ?? "{}") as {
@@ -126,66 +155,6 @@ function rpcHandler(route: Route) {
           oldestLedger: 1,
           oldestLedgerCloseTime: "1",
           ledgerRetentionWindow: 120_960,
-        },
-      },
-    });
-  }
-  if (request.method === "getEvents") {
-    const contractId = request.params?.filters?.[0]?.contractIds?.[0];
-    if (contractId === LATE_EVENT_CONTRACT) {
-      const startLedger = request.params?.startLedger;
-      const cursorIn = request.params?.pagination?.cursor;
-      const position =
-        typeof startLedger === "number"
-          ? startLedger
-          : Number((cursorIn ?? "pos:0").slice(4));
-      const nextPosition = Math.min(position + MOCK_SCAN_HOP, 100_000);
-      const hasEvents =
-        position <= LATE_EVENT_VISIBLE_FROM &&
-        nextPosition >= LATE_EVENT_VISIBLE_FROM;
-      return route.fulfill({
-        json: {
-          jsonrpc: "2.0",
-          id: request.id,
-          result: {
-            events: hasEvents
-              ? [
-                  {
-                    ledger: 50_000,
-                    ledgerClosedAt: "2026-08-20T10:00:00Z",
-                    txHash: LATE_EVENT_HASH,
-                    topic: [HARVEST_SCVAL],
-                    value: HARVEST_SCVAL,
-                  },
-                ]
-              : [],
-            cursor: `pos:${nextPosition}`,
-            latestLedger: 100_000,
-            oldestLedger: 1,
-          },
-        },
-      });
-    }
-    const hasEvents =
-      contractId !== undefined && EVENT_CONTRACTS.has(contractId);
-    return route.fulfill({
-      json: {
-        jsonrpc: "2.0",
-        id: request.id,
-        result: {
-          events: hasEvents
-            ? [
-                {
-                  ledger: 99_000,
-                  ledgerClosedAt: "2026-08-24T10:00:00Z",
-                  txHash: INVOCATION_HASH,
-                  topic: [HARVEST_SCVAL],
-                  value: HARVEST_SCVAL,
-                },
-              ]
-            : [],
-          latestLedger: 100_000,
-          oldestLedger: 1,
         },
       },
     });
@@ -226,7 +195,10 @@ function horizonHandler(route: Route) {
               type: "invoke_host_function",
               source_account: CALLER,
               created_at: "2026-08-24T10:00:00Z",
-              transaction: { fee_charged: "189", successful: true },
+              transaction: {
+                fee_charged: "189",
+                successful: hash !== LATE_EVENT_HASH,
+              },
               address: "",
               function: "HostFunctionTypeHostFunctionTypeInvokeContract",
               parameters: [
@@ -251,6 +223,7 @@ test.beforeEach(async ({ page }) => {
   for (const pattern of HORIZON_PROVIDERS) {
     await page.route(pattern, horizonHandler);
   }
+  await page.route(INDEXER, indexerHandler);
 });
 
 test("a wasm contract shows its executable, storage, and interface", async ({
@@ -335,14 +308,13 @@ test("an invalid address is rejected before any request goes out", async ({
   await expect(page.getByText("contract address")).toBeVisible();
 });
 
-test("invocations shows a transaction where the contract raised its own event", async ({
+test("invocations shows a transaction that called the contract directly", async ({
   page,
 }) => {
   await page.goto(`/contract/${WASM_CONTRACT}?tab=invocations`);
 
   await expect(page.getByRole("heading", { name: "Contract" })).toBeVisible();
-  // the retention window is read from getHealth, not a hardcoded claim
-  await expect(page.getByText(/about 6 days/)).toBeVisible();
+  await expect(page.getByText("invoked this contract directly")).toBeVisible();
   // the row reads the same way an account history row does, because it
   // is the exact same component
   await expect(page.getByText("harvest(")).toBeVisible();
@@ -360,19 +332,23 @@ test("invocations explains an empty result instead of implying nothing happened"
 }) => {
   await page.goto(`/contract/${SAC_CONTRACT}?tab=invocations`);
 
-  await expect(page.getByText("does not raise its own events")).toBeVisible();
-  // neither of the two things an empty page could mean is claimed as fact
-  await expect(page.getByText("contract was quiet")).toBeVisible();
+  await expect(page.getByText("No direct invocations")).toBeVisible();
+  // an empty page still points at the one way activity can hide from it
+  await expect(page.getByText("through cross-contract calls")).toBeVisible();
 });
 
-test("invocations widens the scan past the first attempt to find older activity", async ({
+test("invocations reaches history far older than any rpc retention window", async ({
   page,
 }) => {
   await page.goto(`/contract/${LATE_EVENT_CONTRACT}?tab=invocations`);
 
   await expect(page.getByRole("heading", { name: "Contract" })).toBeVisible();
-  // the event only exists outside the first, narrow lookback: finding it
-  // proves the retry actually widened rather than giving up early
-  await expect(page.getByText("No such transactions")).not.toBeVisible();
-  await expect(page.getByRole("row").nth(1)).toBeVisible();
+  // ledger 50,000 sits half the chain behind the mocked tip; only the
+  // full-history index can surface it
+  await expect(page.getByText("No direct invocations")).not.toBeVisible();
+  const row = page.getByRole("row").nth(1);
+  await expect(row).toBeVisible();
+  // this fixture transaction failed on-chain, and the row must say so
+  // instead of letting it pass for a success
+  await expect(row.getByText("failed")).toBeVisible();
 });

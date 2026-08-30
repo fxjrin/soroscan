@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { ActionSummary } from "@/components/action-summary";
 import { Address } from "@/components/address";
 import { DataCell, DataRow, NoValue } from "@/components/data-table";
-import { OpTag } from "@/components/op-tag";
+import { OpTag, StatusChip } from "@/components/op-tag";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ValueBar } from "@/features/entity-shell";
 import { AuthTraceNote, CallTree } from "@/components/call-tree";
@@ -382,6 +382,11 @@ export function HistoryRow({ entry }: { entry: HistoryEntry }) {
   const invokes = isContractInvocation(record);
   const created = record.created_at;
   const fee = record.transaction?.fee_charged;
+  // only an explicit false is a failure: horizon omits the flag on some
+  // op shapes, and an unknown outcome must not be branded as one
+  const failed =
+    record.transaction_successful === false ||
+    record.transaction?.successful === false;
   // pointing at a row is the reader saying they might open it, and the two
   // cheap requests behind it are worth making then rather than on the click.
   // The trace is not among them: for an old transaction it pulls a whole
@@ -400,7 +405,10 @@ export function HistoryRow({ entry }: { entry: HistoryEntry }) {
           line up and the sentence beside them still starts where the tree
           below it hangs from */}
       <DataCell tight className="align-top" onPointerEnter={warm}>
-        <OpTag family={op.family}>{op.label}</OpTag>
+        <span className="flex flex-col items-start gap-1">
+          <OpTag family={op.family}>{op.label}</OpTag>
+          {failed && <StatusChip successful={false} />}
+        </span>
       </DataCell>
       <DataCell className="align-top" onPointerEnter={warm}>
         <details

@@ -21,11 +21,10 @@ import {
   contractCodeQuery,
   contractInstanceQuery,
   contractInvocationsQuery,
-  EVENTS_PAGE,
-  LEDGERS_PER_DAY,
   type ContractCodeDetails,
   type ContractInstanceDetails,
 } from "@/lib/queries";
+import { INDEXER_PAGE, indexerAvailable } from "@/lib/indexer/client";
 import type {
   ContractErrorCase,
   ContractErrorEnum,
@@ -373,10 +372,19 @@ function Storage({
 function Invocations({ contractId }: { contractId: string }) {
   const pages = useCursorPages();
   const top = useRef<HTMLDivElement>(null);
-  const page = useQuery(
-    contractInvocationsQuery(ACTIVE_NETWORK, contractId, pages.cursor),
-  );
+  const indexed = indexerAvailable(ACTIVE_NETWORK);
+  const page = useQuery({
+    ...contractInvocationsQuery(ACTIVE_NETWORK, contractId, pages.cursor),
+    enabled: indexed,
+  });
 
+  if (!indexed) {
+    return (
+      <p className="text-muted-foreground">
+        Invocation history is indexed for Mainnet only so far.
+      </p>
+    );
+  }
   if (page.isPending) {
     return (
       <div style={PAGED_TABLE}>
@@ -392,35 +400,31 @@ function Invocations({ contractId }: { contractId: string }) {
   if (page.isError) {
     return (
       <p className="text-muted-foreground">
-        Could not load this contract's recent activity; the data providers are
+        Could not load this contract's invocations; the data providers are
         unreachable.
       </p>
     );
   }
-  const retentionDays = Math.round(
-    (page.data.window.toLedger - page.data.window.fromLedger) / LEDGERS_PER_DAY,
-  );
   return (
     <div ref={top} style={PAGED_TABLE} className="scroll-mt-14">
       <p className="pb-4 text-muted-foreground">
-        Transactions in which this contract raised one of its own events, as far
-        back as this RPC provider retains (currently about {retentionDays}{" "}
-        {retentionDays === 1 ? "day" : "days"}). A call that raises no event of
-        its own leaves nothing here, even when the contract is invoked
-        constantly.
+        Every transaction that invoked this contract directly, across its entire
+        history. Cross-contract calls it received from other contracts are not
+        listed; those transactions appear under the contract they invoked
+        directly.
       </p>
       {page.data.entries.length === 0 ? (
         <p className="text-muted-foreground">
-          No such transactions in the provider's retention window. That can mean
-          the contract was quiet for its entire history, or that it simply does
-          not raise its own events.
+          No direct invocations of this contract have ever been indexed. It may
+          only ever have been reached through cross-contract calls from other
+          contracts.
         </p>
       ) : (
         <>
           <Pager
             pages={pages}
-            records={page.data.rawEventCount}
-            pageSize={EVENTS_PAGE}
+            records={page.data.txCount}
+            pageSize={INDEXER_PAGE}
             lastToken={page.data.nextCursor}
             onMove={() => top.current?.scrollIntoView({ block: "start" })}
           />

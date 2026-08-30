@@ -12,6 +12,9 @@ export const RPC_PROVIDERS = [
 export const LEDGER_ARCHIVE =
   "https://aws-public-blockchain.s3.amazonaws.com/**";
 
+// soroscan's own contract-invocations index
+export const INDEXER = "https://api.soroscan.io/**";
+
 export const HORIZON_PROVIDERS = [
   "https://horizon.stellar.org/**",
   "https://horizon.stellar.lobstr.co/**",
@@ -26,6 +29,7 @@ export async function blockLiveHosts(page: Page) {
     ...HORIZON_PROVIDERS,
     ...RPC_PROVIDERS,
     LEDGER_ARCHIVE,
+    INDEXER,
   ]) {
     await page.route(pattern, (route) => route.abort());
   }

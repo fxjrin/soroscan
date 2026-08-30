@@ -6,6 +6,8 @@ export interface NetworkConfig {
   passphrase: string;
   horizonUrls: string[];
   rpcUrls: string[];
+  /** soroscan's own index of contract invocations; empty = not indexed */
+  indexerUrls: string[];
 }
 
 // URL order is the failover order; none of the public endpoints carry an SLA
@@ -24,6 +26,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
       "https://soroban-rpc.mainnet.stellar.gateway.fm",
       "https://stellar.api.onfinality.io/public",
     ],
+    indexerUrls: ["https://api.soroscan.io"],
   },
   testnet: {
     id: "testnet",
@@ -31,6 +34,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     passphrase: "Test SDF Network ; September 2015",
     horizonUrls: ["https://horizon-testnet.stellar.org"],
     rpcUrls: ["https://soroban-testnet.stellar.org"],
+    indexerUrls: [],
   },
 };
 
