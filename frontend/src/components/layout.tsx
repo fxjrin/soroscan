@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet } from "react-router";
-import { SearchIcon } from "lucide-react";
+import { MoonIcon, SearchIcon, SunIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -16,6 +16,7 @@ import {
   NETWORKS,
   networkToggleUrl,
 } from "@/lib/network";
+import { activeTheme, applyTheme, type Theme } from "@/lib/theme";
 
 function NetworkChip() {
   const target = ACTIVE_NETWORK === "mainnet" ? "Testnet" : "Mainnet";
@@ -39,6 +40,34 @@ function NetworkChip() {
         </a>
       </TooltipTrigger>
       <TooltipContent>Click to switch to {target}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState<Theme>(() => activeTheme());
+  const next = theme === "dark" ? "light" : "dark";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Switch to the ${next} theme`}
+          onClick={() => {
+            applyTheme(next);
+            setTheme(next);
+          }}
+          className="flex size-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+        >
+          {/* the icon names where the switch goes, not where you are */}
+          {theme === "dark" ? (
+            <SunIcon className="size-4" aria-hidden="true" />
+          ) : (
+            <MoonIcon className="size-4" aria-hidden="true" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Switch to the {next} theme</TooltipContent>
     </Tooltip>
   );
 }
@@ -93,6 +122,7 @@ export function Layout() {
             <kbd className="rounded bg-muted px-1.5 font-mono text-xs">/</kbd>
           </Button>
           <NetworkChip />
+          <ThemeToggle />
         </div>
       </header>
       <Omnibox open={searchOpen} onOpenChange={setSearchOpen} />
