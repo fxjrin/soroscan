@@ -196,6 +196,12 @@
     stroke-dashoffset: 0 !important;
     opacity: 0.35;
   }
+
+  .tx-row-in,
+  .reveal-in,
+  .rows-in tbody tr {
+    animation: none !important;
+  }
 }
 
 /* transitions.dev motion tokens (subset in use) + number pop-in recipe */

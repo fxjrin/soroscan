@@ -601,7 +601,9 @@ function Invocations({
           />
         }
       />
-      <div className={page.isPlaceholderData ? "opacity-60" : undefined}>
+      <div
+        className={page.isPlaceholderData ? "rows-in opacity-60" : "rows-in"}
+      >
         {partialSearch && (
           <p className="pb-2 text-muted-foreground">
             Only part of the history has been searched so far; the next page

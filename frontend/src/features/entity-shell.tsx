@@ -23,7 +23,7 @@ export function EntityShell({
           swaps one for the other, so they sit at the same distance */}
       {identifier ? <div className="mt-3">{identifier}</div> : null}
       {summary ? <div className="mt-3">{summary}</div> : null}
-      <div className="mt-8">{children}</div>
+      <div className="reveal-in mt-8">{children}</div>
     </main>
   );
 }
