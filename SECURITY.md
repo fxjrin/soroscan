@@ -5,7 +5,7 @@
 Please do NOT open a public issue for security problems.
 
 Use GitHub's private vulnerability reporting instead:
-https://github.com/fxjrin/soroscan/security/advisories/new
+https://github.com/soroscan-io/soroscan/security/advisories/new
 
 You will get an initial response within 72 hours. Coordinated disclosure is appreciated; credit is given in the advisory unless you prefer otherwise.
 
