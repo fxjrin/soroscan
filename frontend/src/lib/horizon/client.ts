@@ -23,6 +23,13 @@ export interface LedgerRecord {
   protocol_version: number;
   paging_token: string;
   fee_pool?: string;
+  prev_hash?: string;
+  total_coins?: string;
+  base_fee_in_stroops?: number;
+  base_reserve_in_stroops?: number;
+  max_tx_set_size?: number;
+  /** operations submitted in the tx set, before failed ones were dropped */
+  tx_set_operation_count?: number;
 }
 
 export async function horizonGet<T>(
@@ -264,6 +271,34 @@ export function fetchTransactionOperations(
     // the fee belongs to the transaction, not to the operation, and
     // joining it here is what keeps a fee column one request
     { order: "asc", limit, join: "transactions" },
+    signal,
+  );
+}
+
+/**
+ * Every operation a closed ledger applied, oldest first, with its
+ * transaction joined so status and fee need no second request.
+ */
+export function fetchLedgerOperations(
+  network: NetworkId,
+  sequence: string,
+  limit: number,
+  cursor?: string,
+  signal?: AbortSignal,
+) {
+  const params: Record<string, string | number> = {
+    order: "asc",
+    limit,
+    include_failed: "true",
+    join: "transactions",
+  };
+  if (cursor !== undefined) {
+    params.cursor = cursor;
+  }
+  return horizonGet<HorizonPage<OperationRecord>>(
+    network,
+    `/ledgers/${sequence}/operations`,
+    params,
     signal,
   );
 }

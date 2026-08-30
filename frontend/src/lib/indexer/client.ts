@@ -120,3 +120,52 @@ export async function fetchContractTransactions(
       typeof body.next_cursor === "string" ? body.next_cursor : undefined,
   };
 }
+
+export interface LedgerSorobanStats {
+  invocations: number;
+  contracts: number;
+  functions: number;
+  /** false while the worker has not reached this ledger yet */
+  indexed: boolean;
+}
+
+/** Contract activity inside one closed ledger, from the soroscan index. */
+export async function fetchLedgerSoroban(
+  network: NetworkId,
+  sequence: number,
+  signal?: AbortSignal,
+): Promise<LedgerSorobanStats> {
+  const urls = NETWORKS[network].indexerUrls;
+  if (urls.length === 0) {
+    throw new UpstreamError(`no indexer for ${network}`);
+  }
+  const { ok, status, body } = await fetchJsonWithFailover<{
+    invocations?: number;
+    contracts?: number;
+    functions?: number;
+    indexed?: boolean;
+    error?: string;
+  }>(urls, `/ledgers/${sequence}/soroban`, undefined, signal);
+  if (!ok) {
+    throw new UpstreamError(
+      typeof body?.error === "string"
+        ? body.error
+        : `indexer responded ${status}`,
+      status,
+    );
+  }
+  if (
+    typeof body?.invocations !== "number" ||
+    typeof body.contracts !== "number" ||
+    typeof body.functions !== "number" ||
+    typeof body.indexed !== "boolean"
+  ) {
+    throw new UpstreamError("indexer: malformed response body");
+  }
+  return {
+    invocations: body.invocations,
+    contracts: body.contracts,
+    functions: body.functions,
+    indexed: body.indexed,
+  };
+}

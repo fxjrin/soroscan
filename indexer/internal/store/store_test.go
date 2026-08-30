@@ -293,6 +293,58 @@ func TestTransactionsByContractFilters(t *testing.T) {
 	}
 }
 
+func TestLedgerStats(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	st := New(pool)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_, err = pool.Exec(ctx, `TRUNCATE contract_transactions, contracts, functions, arg_addresses, checkpoints RESTART IDENTITY`)
+	if err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	contractA := testStrkey(t, strkeyVersionContract, 0x01)
+	contractB := testStrkey(t, strkeyVersionContract, 0x02)
+	closedAt := time.Now().UTC().Truncate(time.Microsecond)
+	rows := []InvocationRow{
+		{ContractID: contractA, TxHash: fillHash(0xAA), Ledger: 500, ClosedAt: closedAt, Function: "work", FeeCharged: 1},
+		{ContractID: contractA, TxHash: fillHash(0xBB), Ledger: 500, ClosedAt: closedAt, Function: "plant", FeeCharged: 1},
+		{ContractID: contractB, TxHash: fillHash(0xCC), Ledger: 500, ClosedAt: closedAt, Function: "work", FeeCharged: 1},
+	}
+	if err := st.SaveLedger(ctx, 500, rows); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	stats, err := st.LedgerStats(ctx, 500)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.Invocations != 3 || stats.Contracts != 2 || stats.Functions != 2 || !stats.Indexed {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+
+	// a quiet ledger the worker has passed reads as indexed silence, and a
+	// ledger past the checkpoint reads as not indexed rather than empty
+	quiet, err := st.LedgerStats(ctx, 400)
+	if err != nil || quiet.Invocations != 0 || !quiet.Indexed {
+		t.Fatalf("unexpected quiet stats: %+v %v", quiet, err)
+	}
+	ahead, err := st.LedgerStats(ctx, 501)
+	if err != nil || ahead.Indexed {
+		t.Fatalf("unexpected ahead stats: %+v %v", ahead, err)
+	}
+}
+
 func fillHash(b byte) [32]byte {
 	var h [32]byte
 	for i := range h {
