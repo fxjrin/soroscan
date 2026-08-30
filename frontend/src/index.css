@@ -281,6 +281,48 @@
   animation: reveal-in var(--duration-slow) ease-in-out both;
 }
 
+/* rows enter like the home feed does; the stagger stops after the first
+   screenful so long pages do not trickle in for seconds */
+.rows-in tbody tr {
+  animation: tx-row-in var(--duration-fast) var(--ease-smooth-out) both;
+}
+.rows-in tbody tr:nth-child(1) {
+  animation-delay: calc(1 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(2) {
+  animation-delay: calc(2 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(3) {
+  animation-delay: calc(3 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(4) {
+  animation-delay: calc(4 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(5) {
+  animation-delay: calc(5 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(6) {
+  animation-delay: calc(6 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(7) {
+  animation-delay: calc(7 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(8) {
+  animation-delay: calc(8 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(9) {
+  animation-delay: calc(9 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(10) {
+  animation-delay: calc(10 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(11) {
+  animation-delay: calc(11 * var(--duration-stagger));
+}
+.rows-in tbody tr:nth-child(12) {
+  animation-delay: calc(12 * var(--duration-stagger));
+}
+
 @keyframes ledger-card-grow {
   0% {
     height: 0;

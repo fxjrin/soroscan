@@ -253,6 +253,32 @@ func (s *Store) SetCheckpoint(ctx context.Context, name string, ledger int64) er
 	return nil
 }
 
+// LedgerStats summarizes one ledger's contract activity. Indexed reports
+// whether the worker has reached the ledger at all: zeros in an indexed
+// ledger mean real silence, zeros in an unindexed one mean nothing yet.
+type LedgerStats struct {
+	Invocations int64
+	Contracts   int64
+	Functions   int64
+	Indexed     bool
+}
+
+func (s *Store) LedgerStats(ctx context.Context, sequence uint32) (LedgerStats, error) {
+	checkpoint, err := s.CheckpointLedger(ctx, "worker")
+	if err != nil {
+		return LedgerStats{}, err
+	}
+	stats := LedgerStats{Indexed: checkpoint >= int64(sequence)}
+	err = s.pool.QueryRow(ctx,
+		`SELECT count(*), count(DISTINCT contract_id), count(DISTINCT function)
+		 FROM contract_transactions WHERE ledger = $1::bigint`,
+		int64(sequence)).Scan(&stats.Invocations, &stats.Contracts, &stats.Functions)
+	if err != nil {
+		return LedgerStats{}, fmt.Errorf("query ledger stats: %w", err)
+	}
+	return stats, nil
+}
+
 // ErrInvalidContract marks a contract address that fails strkey decoding,
 // so callers can tell bad input apart from a real storage failure.
 var ErrInvalidContract = errors.New("invalid contract address")

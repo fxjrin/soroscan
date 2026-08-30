@@ -32,6 +32,7 @@ var functionPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 type reader interface {
 	TransactionsByContract(ctx context.Context, contractStrkey string, before *store.Cursor, limit int, filter store.TransactionFilter) (store.Page, error)
+	LedgerStats(ctx context.Context, sequence uint32) (store.LedgerStats, error)
 }
 
 type Handler struct {
@@ -45,6 +46,7 @@ func New(st reader) *Handler {
 func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /contracts/{id}/transactions", h.contractTransactions)
+	mux.HandleFunc("GET /ledgers/{sequence}/soroban", h.ledgerSoroban)
 	return mux
 }
 
@@ -153,6 +155,26 @@ func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
 		out.NextCursor = &next
 	}
 	writeJSON(w, out)
+}
+
+func (h *Handler) ledgerSoroban(w http.ResponseWriter, r *http.Request) {
+	sequence, err := strconv.ParseUint(r.PathValue("sequence"), 10, 32)
+	if err != nil || sequence == 0 {
+		writeError(w, http.StatusBadRequest, "invalid ledger sequence")
+		return
+	}
+	stats, err := h.store.LedgerStats(r.Context(), uint32(sequence))
+	if err != nil {
+		log.Printf("ledger soroban %d: %v", sequence, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, struct {
+		Invocations int64 `json:"invocations"`
+		Contracts   int64 `json:"contracts"`
+		Functions   int64 `json:"functions"`
+		Indexed     bool  `json:"indexed"`
+	}{stats.Invocations, stats.Contracts, stats.Functions, stats.Indexed})
 }
 
 func parseCursor(raw string) (*store.Cursor, bool, bool) {

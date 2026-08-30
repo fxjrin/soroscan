@@ -8,6 +8,7 @@ import {
   fetchLatestOperations,
   fetchLatestTransactions,
   fetchLedger,
+  fetchLedgerOperations,
   fetchTransaction,
   fetchTransactionEffects,
   fetchTransactionOperations,
@@ -25,9 +26,10 @@ import {
   fetchLedgerEntries,
   fetchRpcTransaction,
 } from "@/lib/rpc/client";
-import type { HistoryEntry } from "@/lib/history";
+import { groupByTransaction, type HistoryEntry } from "@/lib/history";
 import {
   fetchContractTransactions,
+  fetchLedgerSoroban,
   type TransactionsQuery,
 } from "@/lib/indexer/client";
 import {
@@ -419,6 +421,60 @@ export interface ContractInvocations {
  * the contract's entire history. A cross-contract call does not appear
  * here: the contract the transaction invoked directly is the one indexed.
  */
+const LEDGER_OPS_PAGE = 200;
+// the whole ledger loads up front so its summary covers every transaction;
+// the cap only guards against a pathological set, far above normal ledgers
+const LEDGER_OPS_MAX_PAGES = 8;
+
+export interface LedgerActivity {
+  /** one row per transaction, in the order the ledger applied them */
+  entries: HistoryEntry[];
+  opCount: number;
+  /** true when the ledger held more operations than the load cap */
+  truncated: boolean;
+}
+
+export function ledgerOperationsQuery(network: NetworkId, sequence: string) {
+  return queryOptions({
+    queryKey: [network, "horizon", "ledger", sequence, "operations"],
+    queryFn: async ({ signal }): Promise<LedgerActivity> => {
+      const records = [];
+      let cursor: string | undefined;
+      let truncated = false;
+      for (let page = 0; page < LEDGER_OPS_MAX_PAGES; page++) {
+        const batch = await fetchLedgerOperations(
+          network,
+          sequence,
+          LEDGER_OPS_PAGE,
+          cursor,
+          signal,
+        );
+        records.push(...batch._embedded.records);
+        if (batch._embedded.records.length < LEDGER_OPS_PAGE) {
+          break;
+        }
+        cursor = records[records.length - 1].paging_token;
+        truncated = page === LEDGER_OPS_MAX_PAGES - 1;
+      }
+      return {
+        entries: groupByTransaction(records),
+        opCount: records.length,
+        truncated,
+      };
+    },
+    staleTime: Infinity, // a closed ledger's contents never change
+  });
+}
+
+export function ledgerSorobanQuery(network: NetworkId, sequence: number) {
+  return queryOptions({
+    queryKey: [network, "indexer", "ledger", sequence, "soroban"],
+    queryFn: ({ signal }) => fetchLedgerSoroban(network, sequence, signal),
+    // the answer is final once indexed; until then the worker may catch up
+    staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
 export function contractInvocationsQuery(
   network: NetworkId,
   contractId: string,
