@@ -22,7 +22,11 @@ import {
   formatTimestamp,
   subtractDecimalStrings,
 } from "@/lib/format";
-import { NotFoundError, type LedgerRecord } from "@/lib/horizon/client";
+import {
+  BeforeHistoryError,
+  NotFoundError,
+  type LedgerRecord,
+} from "@/lib/horizon/client";
 import { indexerAvailable } from "@/lib/indexer/client";
 import { ACTIVE_NETWORK, appPath } from "@/lib/network";
 import {
@@ -574,6 +578,7 @@ export function LedgerPage() {
 
   const latest = health.data?.latestLedger;
   const notFound = ledger.error instanceof NotFoundError;
+  const beforeHistory = ledger.error instanceof BeforeHistoryError;
   const sawFuture = useRef(false);
   const refetch = ledger.refetch;
   useEffect(() => {
@@ -599,6 +604,12 @@ export function LedgerPage() {
     body = <LedgerSkeleton />;
   } else if (ledger.isSuccess) {
     body = <LedgerBody key={ledger.data.sequence} ledger={ledger.data} />;
+  } else if (beforeHistory) {
+    body = (
+      <p className="text-muted-foreground">
+        This ledger is older than the data provider's available history.
+      </p>
+    );
   } else if (notFound) {
     if (latest === undefined) {
       body = <LedgerSkeleton />;

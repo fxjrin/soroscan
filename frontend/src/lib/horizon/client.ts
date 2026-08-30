@@ -1,6 +1,14 @@
 import { fetchJsonWithFailover, UpstreamError } from "@/lib/failover";
 import { NETWORKS, type NetworkId } from "@/lib/network";
 
+/** Horizon's 410: the record predates this instance's recorded history. */
+export class BeforeHistoryError extends Error {
+  constructor(path: string) {
+    super(`before recorded history: ${path}`);
+    this.name = "BeforeHistoryError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor(path: string) {
     super(`not found: ${path}`);
@@ -52,6 +60,9 @@ export async function horizonGet<T>(
   );
   if (status === 404) {
     throw new NotFoundError(path);
+  }
+  if (status === 410) {
+    throw new BeforeHistoryError(path);
   }
   if (!ok) {
     throw new UpstreamError(`horizon ${status} for ${path}`, status);
