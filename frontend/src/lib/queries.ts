@@ -22,8 +22,21 @@ import { chainNow } from "@/lib/clock";
 import {
   fetchFeeStats,
   fetchHealth,
+  fetchLedgerEntries,
   fetchRpcTransaction,
 } from "@/lib/rpc/client";
+import type { HistoryEntry } from "@/lib/history";
+import { fetchContractTransactions } from "@/lib/indexer/client";
+import {
+  contractCodeKey,
+  contractInstanceKey,
+  contractInterface,
+  decodeContractCode,
+  decodeContractInstance,
+  type ContractCode,
+  type ContractInterfaceInfo,
+  type ContractInstance,
+} from "@/lib/contract";
 import { decodeReturnValue } from "@/lib/tx-meta";
 import { fetchArchivedMeta } from "@/lib/ledger-lake";
 import { decodeTrace, type TxTrace } from "@/lib/tx-trace";
@@ -328,5 +341,135 @@ export function accountOffersQuery(
     queryFn: ({ signal }) =>
       fetchAccountOffers(network, address, limit, cursor, signal),
     staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
+export interface ContractInstanceDetails {
+  /** undefined when no live entry exists: never deployed, or deployed and
+   * since archived for going unread past its ttl */
+  instance: ContractInstance | undefined;
+  lastModifiedLedgerSeq?: number;
+  liveUntilLedgerSeq?: number;
+}
+
+// the instance is live ledger state, not a historical lookup: it does not
+// age out the way a transaction's meta does, so this reads current state
+// on the same short cadence account balances do
+export function contractInstanceQuery(network: NetworkId, contractId: string) {
+  return queryOptions({
+    queryKey: [network, "rpc", "contract", contractId, "instance"],
+    queryFn: async ({ signal }): Promise<ContractInstanceDetails> => {
+      const key = await contractInstanceKey(contractId);
+      const [entry] = await fetchLedgerEntries(network, [key], signal);
+      if (entry === undefined) {
+        return { instance: undefined };
+      }
+      return {
+        instance: await decodeContractInstance(entry.dataXdr),
+        lastModifiedLedgerSeq: entry.lastModifiedLedgerSeq,
+        liveUntilLedgerSeq: entry.liveUntilLedgerSeq,
+      };
+    },
+    staleTime: LEDGER_CLOSE_MS,
+  });
+}
+
+export interface ContractCodeDetails {
+  code: ContractCode | undefined;
+  /** undefined when the wasm has no spec section, or is too malformed to parse */
+  interface: ContractInterfaceInfo | undefined;
+}
+
+// keyed by hash alone, not by contract id: every contract deployed from
+// the same wasm shares this entry, and the wasm at a given hash never
+// changes once it exists
+export function contractCodeQuery(network: NetworkId, wasmHash: string) {
+  return queryOptions({
+    queryKey: [network, "rpc", "contract-code", wasmHash],
+    queryFn: async ({ signal }): Promise<ContractCodeDetails> => {
+      const key = await contractCodeKey(wasmHash);
+      const [entry] = await fetchLedgerEntries(network, [key], signal);
+      const code =
+        entry === undefined
+          ? undefined
+          : await decodeContractCode(entry.dataXdr);
+      const contractInterfaceInfo =
+        code === undefined
+          ? undefined
+          : await contractInterface(code.wasmBytes);
+      return { code, interface: contractInterfaceInfo };
+    },
+    staleTime: Infinity,
+  });
+}
+
+export interface ContractInvocations {
+  /** one row per top-level invocation of the contract, most recent first */
+  entries: HistoryEntry[];
+  /** how many transactions the indexer page held before Horizon lookups */
+  txCount: number;
+  nextCursor?: string;
+}
+
+/**
+ * Transactions that invoked this contract directly, newest first, across
+ * the contract's entire history. A cross-contract call does not appear
+ * here: the contract the transaction invoked directly is the one indexed.
+ */
+export function contractInvocationsQuery(
+  network: NetworkId,
+  contractId: string,
+  cursor?: string,
+) {
+  return queryOptions({
+    queryKey: [
+      network,
+      "indexer",
+      "contract",
+      contractId,
+      "invocations",
+      cursor,
+    ],
+    queryFn: async ({ signal }): Promise<ContractInvocations> => {
+      const page = await fetchContractTransactions(
+        network,
+        contractId,
+        cursor,
+        signal,
+      );
+      const operations = await Promise.all(
+        page.transactions.map(async (transaction) => {
+          try {
+            const operationsPage = await fetchTransactionOperations(
+              network,
+              transaction.txHash,
+              1,
+              signal,
+            );
+            return operationsPage._embedded.records[0];
+          } catch {
+            return undefined; // one unreachable transaction should not sink the page
+          }
+        }),
+      );
+      const entries: HistoryEntry[] = [];
+      page.transactions.forEach((transaction, index) => {
+        const operation = operations[index];
+        if (operation !== undefined) {
+          entries.push({
+            hash: transaction.txHash,
+            lastToken: operation.paging_token,
+            operations: [operation],
+          });
+        }
+      });
+      return {
+        entries,
+        txCount: page.transactions.length,
+        nextCursor: page.nextCursor,
+      };
+    },
+    // pages behind a cursor are settled history; only the newest page moves
+    staleTime: cursor === undefined ? LEDGER_CLOSE_MS : Infinity,
   });
 }

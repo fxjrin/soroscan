@@ -261,7 +261,9 @@ export function fetchTransactionOperations(
   return horizonGet<HorizonPage<OperationRecord>>(
     network,
     `/transactions/${hash}/operations`,
-    { order: "asc", limit },
+    // the fee belongs to the transaction, not to the operation, and
+    // joining it here is what keeps a fee column one request
+    { order: "asc", limit, join: "transactions" },
     signal,
   );
 }

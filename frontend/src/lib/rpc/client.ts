@@ -132,3 +132,45 @@ export async function fetchHealth(
   }
   return health;
 }
+
+export interface RpcLedgerEntry {
+  dataXdr: string;
+  lastModifiedLedgerSeq: number;
+  liveUntilLedgerSeq?: number;
+}
+
+/**
+ * A ledger key with no live entry is a valid answer, not a provider
+ * failure: the caller learns this from an empty `entries` array, never
+ * an error. Reads the current, tip-of-chain ledger state, so a caller
+ * should not cache the answer as if it were immutable.
+ */
+export async function fetchLedgerEntries(
+  network: NetworkId,
+  keys: string[],
+  signal?: AbortSignal,
+): Promise<RpcLedgerEntry[]> {
+  const result = await rpcCall<{
+    entries?: Array<{
+      xdr?: string;
+      lastModifiedLedgerSeq?: number;
+      liveUntilLedgerSeq?: number;
+    }>;
+  }>(network, "getLedgerEntries", { keys }, signal);
+  if (!Array.isArray(result?.entries)) {
+    throw new UpstreamError("getLedgerEntries: malformed response body");
+  }
+  return result.entries.map((entry) => {
+    if (
+      typeof entry.xdr !== "string" ||
+      typeof entry.lastModifiedLedgerSeq !== "number"
+    ) {
+      throw new UpstreamError("getLedgerEntries: malformed entry");
+    }
+    return {
+      dataXdr: entry.xdr,
+      lastModifiedLedgerSeq: entry.lastModifiedLedgerSeq,
+      liveUntilLedgerSeq: entry.liveUntilLedgerSeq,
+    };
+  });
+}
