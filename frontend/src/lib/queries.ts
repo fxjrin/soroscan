@@ -26,7 +26,10 @@ import {
   fetchRpcTransaction,
 } from "@/lib/rpc/client";
 import type { HistoryEntry } from "@/lib/history";
-import { fetchContractTransactions } from "@/lib/indexer/client";
+import {
+  fetchContractTransactions,
+  type TransactionsQuery,
+} from "@/lib/indexer/client";
 import {
   contractCodeKey,
   contractInstanceKey,
@@ -419,7 +422,7 @@ export interface ContractInvocations {
 export function contractInvocationsQuery(
   network: NetworkId,
   contractId: string,
-  cursor?: string,
+  query: TransactionsQuery,
 ) {
   return queryOptions({
     queryKey: [
@@ -428,13 +431,16 @@ export function contractInvocationsQuery(
       "contract",
       contractId,
       "invocations",
-      cursor,
+      query.functionName ?? "",
+      query.from ?? "",
+      query.to ?? "",
+      query.cursor,
     ],
     queryFn: async ({ signal }): Promise<ContractInvocations> => {
       const page = await fetchContractTransactions(
         network,
         contractId,
-        cursor,
+        query,
         signal,
       );
       const operations = await Promise.all(
@@ -470,6 +476,6 @@ export function contractInvocationsQuery(
       };
     },
     // pages behind a cursor are settled history; only the newest page moves
-    staleTime: cursor === undefined ? LEDGER_CLOSE_MS : Infinity,
+    staleTime: query.cursor === undefined ? LEDGER_CLOSE_MS : Infinity,
   });
 }

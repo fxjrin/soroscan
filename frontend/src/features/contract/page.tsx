@@ -1,10 +1,22 @@
 import type { ReactNode } from "react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { ListFilter } from "lucide-react";
+import type { DateRange } from "react-day-picker";
 import { Link, useParams, useSearchParams } from "react-router";
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { Address } from "@/components/address";
 import { DataTable, TableSkeleton } from "@/components/data-table";
 import { ScValView } from "@/components/scval-view";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityShell, Row, ValueBar } from "@/features/entity-shell";
 import { HistoryRow, Pager, PagerSkeleton } from "@/features/history-table";
@@ -369,14 +381,154 @@ function Storage({
  * the RPC provider's own retention window is reachable at all, so both
  * limits are said plainly rather than reading as a complete history.
  */
-function Invocations({ contractId }: { contractId: string }) {
+const FILTER_FIELD =
+  "h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground";
+
+function dayString(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function dayDate(value: string): Date | undefined {
+  if (value === "") {
+    return undefined;
+  }
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+// the rows show close times in the reader's own zone, so the picked days
+// bound whole local days, converted to instants for the indexer
+function dayBoundIso(value: string, end: boolean): string | undefined {
+  const date = dayDate(value);
+  if (date === undefined) {
+    return undefined;
+  }
+  if (end) {
+    date.setHours(23, 59, 59);
+  }
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function InvocationFilters({
+  functionNames,
+  functionName,
+  fromDate,
+  toDate,
+  filtered,
+  onFunction,
+  onRange,
+  onClear,
+}: {
+  functionNames: string[];
+  functionName: string;
+  fromDate: string;
+  toDate: string;
+  filtered: boolean;
+  onFunction: (value: string) => void;
+  onRange: (from: string, to: string) => void;
+  onClear: () => void;
+}) {
+  const range: DateRange | undefined =
+    fromDate === "" && toDate === ""
+      ? undefined
+      : { from: dayDate(fromDate), to: dayDate(toDate) };
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Filters"
+          className={
+            "flex h-9 w-9 items-center justify-center rounded-lg border transition-colors hover:bg-muted" +
+            (filtered ? " bg-muted text-foreground" : " text-muted-foreground")
+          }
+        >
+          <ListFilter className="size-4" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="flex w-auto flex-col gap-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Function</span>
+          <select
+            className={FILTER_FIELD}
+            value={functionName}
+            onChange={(event) => onFunction(event.target.value)}
+            aria-label="Filter by function"
+          >
+            <option value="">All functions</option>
+            {functionNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Date range</span>
+          <Calendar
+            mode="range"
+            selected={range}
+            onSelect={(next) =>
+              onRange(
+                next?.from === undefined ? "" : dayString(next.from),
+                next?.to === undefined ? "" : dayString(next.to),
+              )
+            }
+            defaultMonth={range?.to ?? range?.from}
+            disabled={{ after: new Date() }}
+            aria-label="Date range"
+          />
+        </div>
+        <button
+          type="button"
+          disabled={!filtered}
+          className="h-9 rounded-lg border px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          onClick={onClear}
+        >
+          Clear
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function Invocations({
+  contractId,
+  functionNames,
+}: {
+  contractId: string;
+  functionNames: string[];
+}) {
   const pages = useCursorPages();
   const top = useRef<HTMLDivElement>(null);
+  const [functionName, setFunctionName] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const indexed = indexerAvailable(ACTIVE_NETWORK);
   const page = useQuery({
-    ...contractInvocationsQuery(ACTIVE_NETWORK, contractId, pages.cursor),
+    ...contractInvocationsQuery(ACTIVE_NETWORK, contractId, {
+      cursor: pages.cursor,
+      functionName: functionName === "" ? undefined : functionName,
+      from: dayBoundIso(fromDate, false),
+      to: dayBoundIso(toDate, true),
+    }),
     enabled: indexed,
+    // a filter or page change redraws in place over the previous rows;
+    // dropping to a skeleton would close the filter popover mid-use
+    placeholderData: keepPreviousData,
   });
+
+  // a changed filter describes a different list, so the walked pages of
+  // the old one no longer apply
+  const applyFilter = (update: () => void) => {
+    update();
+    pages.reset();
+  };
+  const filtered = functionName !== "" || fromDate !== "" || toDate !== "";
 
   if (!indexed) {
     return (
@@ -405,6 +557,11 @@ function Invocations({ contractId }: { contractId: string }) {
       </p>
     );
   }
+  const data = page.data;
+  // a short page that still carries a cursor means the indexer searched
+  // part of the history within its budget; the next page continues it
+  const partialSearch =
+    data.nextCursor !== undefined && data.txCount < INDEXER_PAGE;
   return (
     <div ref={top} style={PAGED_TABLE} className="scroll-mt-14">
       <p className="pb-4 text-muted-foreground">
@@ -413,28 +570,60 @@ function Invocations({ contractId }: { contractId: string }) {
         listed; those transactions appear under the contract they invoked
         directly.
       </p>
-      {page.data.entries.length === 0 ? (
-        <p className="text-muted-foreground">
-          No direct invocations of this contract have ever been indexed. It may
-          only ever have been reached through cross-contract calls from other
-          contracts.
-        </p>
-      ) : (
-        <>
-          <Pager
-            pages={pages}
-            records={page.data.txCount}
-            pageSize={INDEXER_PAGE}
-            lastToken={page.data.nextCursor}
-            onMove={() => top.current?.scrollIntoView({ block: "start" })}
+      <Pager
+        pages={pages}
+        records={data.txCount}
+        pageSize={INDEXER_PAGE}
+        lastToken={data.nextCursor}
+        more={data.nextCursor !== undefined}
+        onMove={() => top.current?.scrollIntoView({ block: "start" })}
+        trailing={
+          <InvocationFilters
+            functionNames={functionNames}
+            functionName={functionName}
+            fromDate={fromDate}
+            toDate={toDate}
+            filtered={filtered}
+            onFunction={(value) => applyFilter(() => setFunctionName(value))}
+            onRange={(from, to) =>
+              applyFilter(() => {
+                setFromDate(from);
+                setToDate(to);
+              })
+            }
+            onClear={() =>
+              applyFilter(() => {
+                setFunctionName("");
+                setFromDate("");
+                setToDate("");
+              })
+            }
           />
+        }
+      />
+      <div className={page.isPlaceholderData ? "opacity-60" : undefined}>
+        {partialSearch && (
+          <p className="pb-2 text-muted-foreground">
+            Only part of the history has been searched so far; the next page
+            continues where this one stopped.
+          </p>
+        )}
+        {data.entries.length === 0 ? (
+          <p className="text-muted-foreground">
+            {data.nextCursor !== undefined
+              ? "No matches in the ledgers searched so far."
+              : filtered
+                ? "No invocations match these filters."
+                : "No direct invocations of this contract have ever been indexed. It may only ever have been reached through cross-contract calls from other contracts."}
+          </p>
+        ) : (
           <DataTable columns={HISTORY_COLUMNS} minWidth={HISTORY_MIN_WIDTH}>
-            {page.data.entries.map((entry) => (
+            {data.entries.map((entry) => (
               <HistoryRow key={entry.hash} entry={entry} />
             ))}
           </DataTable>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -573,7 +762,12 @@ export function ContractPage() {
           <Storage instance={instance.data.instance} />
         </TabsContent>
         <TabsContent value="invocations" className="pt-5">
-          <Invocations contractId={target.value} />
+          <Invocations
+            contractId={target.value}
+            functionNames={
+              code.data?.interface?.functions.map((fn) => fn.name) ?? []
+            }
+          />
         </TabsContent>
       </Tabs>
     );

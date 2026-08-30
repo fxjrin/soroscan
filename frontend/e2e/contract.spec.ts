@@ -103,10 +103,12 @@ const LATE_EVENT_HASH = "bbcc".repeat(16);
 // cross-contract calls
 const INDEXED_BY_CONTRACT: Record<
   string,
-  Array<{ hash: string; ledger: number }>
+  Array<{ hash: string; ledger: number; fn: string }>
 > = {
-  [WASM_CONTRACT]: [{ hash: INVOCATION_HASH, ledger: 99_000 }],
-  [LATE_EVENT_CONTRACT]: [{ hash: LATE_EVENT_HASH, ledger: 50_000 }],
+  [WASM_CONTRACT]: [{ hash: INVOCATION_HASH, ledger: 99_000, fn: "harvest" }],
+  [LATE_EVENT_CONTRACT]: [
+    { hash: LATE_EVENT_HASH, ledger: 50_000, fn: "harvest" },
+  ],
 };
 
 function indexerHandler(route: Route) {
@@ -117,14 +119,17 @@ function indexerHandler(route: Route) {
   if (match === null) {
     return route.fulfill({ status: 404, json: { error: "no such route" } });
   }
-  const rows = INDEXED_BY_CONTRACT[match[1]] ?? [];
+  const fn = url.searchParams.get("function");
+  const rows = (INDEXED_BY_CONTRACT[match[1]] ?? []).filter(
+    (row) => fn === null || row.fn === fn,
+  );
   return route.fulfill({
     json: {
       transactions: rows.map((row) => ({
         tx_hash: row.hash,
         ledger: row.ledger,
         closed_at: "2026-08-24T10:00:00Z",
-        function: "harvest",
+        function: row.fn,
         args: [CALLER, "1"],
         fee_charged: "189",
       })),
@@ -335,6 +340,22 @@ test("invocations explains an empty result instead of implying nothing happened"
   await expect(page.getByText("No direct invocations")).toBeVisible();
   // an empty page still points at the one way activity can hide from it
   await expect(page.getByText("through cross-contract calls")).toBeVisible();
+});
+
+test("invocations filter narrows the list by function", async ({ page }) => {
+  await page.goto(`/contract/${WASM_CONTRACT}?tab=invocations`);
+  await expect(page.getByText("harvest(")).toBeVisible();
+
+  // the dropdown offers the contract's own interface; a function with no
+  // matching activity yields the filtered empty state, not a broken page
+  await page.getByLabel("Filters").click();
+  await page.getByLabel("Filter by function").selectOption("__constructor");
+  await expect(
+    page.getByText("No invocations match these filters."),
+  ).toBeVisible();
+
+  await page.getByLabel("Filter by function").selectOption("harvest");
+  await expect(page.getByText("harvest(")).toBeVisible();
 });
 
 test("invocations reaches history far older than any rpc retention window", async ({

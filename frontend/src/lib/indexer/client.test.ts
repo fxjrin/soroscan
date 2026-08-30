@@ -67,11 +67,26 @@ test("passes the cursor through and ends paging without one", async () => {
   const fetchMock = stubIndexer(200, { transactions: [] });
 
   const cursor = "62858187-" + "0f".repeat(32);
-  const page = await fetchContractTransactions("mainnet", CONTRACT, cursor);
+  const page = await fetchContractTransactions("mainnet", CONTRACT, { cursor });
 
   expect(String(fetchMock.mock.calls[0][0])).toContain("cursor=" + cursor);
   expect(page.transactions).toEqual([]);
   expect(page.nextCursor).toBeUndefined();
+});
+
+test("serializes the filters and leaves unset ones out", async () => {
+  const fetchMock = stubIndexer(200, { transactions: [] });
+
+  await fetchContractTransactions("mainnet", CONTRACT, {
+    functionName: "work",
+    from: "2026-01-01T00:00:00Z",
+  });
+
+  const url = String(fetchMock.mock.calls[0][0]);
+  expect(url).toContain("function=work");
+  expect(url).toContain("from=2026-01-01T00%3A00%3A00Z");
+  expect(url).not.toContain("to=");
+  expect(url).not.toContain("cursor");
 });
 
 test("surfaces the server's own error message", async () => {

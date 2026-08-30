@@ -23,15 +23,29 @@ export function indexerAvailable(network: NetworkId): boolean {
   return NETWORKS[network].indexerUrls.length > 0;
 }
 
+export interface TransactionsQuery {
+  cursor?: string;
+  /** keep only invocations of this function */
+  functionName?: string;
+  /** RFC 3339 lower bound on the ledger close time */
+  from?: string;
+  /** RFC 3339 upper bound on the ledger close time */
+  to?: string;
+}
+
 /**
  * Top-level invocations of a contract, newest first, across its full
  * history. A transaction appears only when it invoked the contract
  * directly, never when the contract ran inside a cross-contract call.
+ *
+ * A filtered page can come back shorter than the page size while still
+ * carrying a cursor: the indexer searched part of the history within its
+ * budget, and the cursor continues the search where it stopped.
  */
 export async function fetchContractTransactions(
   network: NetworkId,
   contractId: string,
-  cursor?: string,
+  query: TransactionsQuery = {},
   signal?: AbortSignal,
 ): Promise<IndexedTransactionsPage> {
   const urls = NETWORKS[network].indexerUrls;
@@ -39,8 +53,17 @@ export async function fetchContractTransactions(
     throw new UpstreamError(`no indexer for ${network}`);
   }
   const params = new URLSearchParams({ limit: String(INDEXER_PAGE) });
-  if (cursor !== undefined) {
-    params.set("cursor", cursor);
+  if (query.cursor !== undefined) {
+    params.set("cursor", query.cursor);
+  }
+  if (query.functionName !== undefined && query.functionName !== "") {
+    params.set("function", query.functionName);
+  }
+  if (query.from !== undefined) {
+    params.set("from", query.from);
+  }
+  if (query.to !== undefined) {
+    params.set("to", query.to);
   }
   const { ok, status, body } = await fetchJsonWithFailover<{
     transactions?: Array<{
