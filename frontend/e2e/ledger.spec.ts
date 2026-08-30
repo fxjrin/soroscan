@@ -201,6 +201,27 @@ test("a future ledger explains it has not closed yet", async ({ page }) => {
   await expect(page.getByText("64,000,000", { exact: true })).toBeVisible();
 });
 
+test("a ledger before recorded history explains itself", async ({ page }) => {
+  const BEFORE_HISTORY = {
+    status: 410,
+    json: {
+      type: "https://stellar.org/horizon-errors/before_history",
+      title: "Data Requested Is Before Recorded History",
+      status: 410,
+    },
+  };
+  await page.route(HORIZON, (route) => route.fulfill(BEFORE_HISTORY));
+  await page.route(HORIZON_FALLBACK, (route) => route.fulfill(BEFORE_HISTORY));
+  await page.route(
+    RPC,
+    healthRoute(() => 64000000),
+  );
+
+  await page.goto("/ledger/50457424");
+
+  await expect(page.getByText(/older than the data provider/)).toBeVisible();
+});
+
 test("a truncated old ledger explains the retention window", async ({
   page,
 }) => {
