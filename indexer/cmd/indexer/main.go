@@ -28,7 +28,10 @@ const (
 	tipPollInterval  = 2 * time.Second
 	errorBackoff     = 5 * time.Second
 	progressInterval = 500
-	backfillBatch    = 8
+	// concurrent archive fetches per backfill batch: the work is dominated
+	// by object-store round trips, not cpu, so this mostly buys throughput
+	defaultBackfillConcurrency = 32
+	maxBackfillConcurrency     = 64
 )
 
 func main() {
@@ -59,7 +62,14 @@ func run(args []string, databaseURL string) error {
 	if err := st.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	client := lake.NewClient(lakeBaseURL, &http.Client{Timeout: 60 * time.Second})
+	// the default transport keeps only two idle connections per host, which
+	// makes every concurrent batch pay fresh tls handshakes to the archive
+	transport := &http.Transport{
+		MaxIdleConns:        maxBackfillConcurrency,
+		MaxIdleConnsPerHost: maxBackfillConcurrency,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	client := lake.NewClient(lakeBaseURL, &http.Client{Timeout: 60 * time.Second, Transport: transport})
 
 	switch args[0] {
 	case "follow":
@@ -73,13 +83,17 @@ func run(args []string, databaseURL string) error {
 		flags := flag.NewFlagSet("backfill", flag.ContinueOnError)
 		start := flags.Uint64("start", 0, "first ledger sequence")
 		end := flags.Uint64("end", 0, "last ledger sequence")
+		concurrency := flags.Int("concurrency", defaultBackfillConcurrency, "concurrent archive fetches per batch")
 		if err := flags.Parse(args[1:]); err != nil {
 			return fmt.Errorf("parse backfill flags: %w", err)
 		}
 		if *start == 0 || *end == 0 || *start > *end || *end > math.MaxUint32 {
 			return errors.New("backfill needs --start and --end with 0 < start <= end <= 4294967295")
 		}
-		return backfill(ctx, client, st, uint32(*start), uint32(*end))
+		if *concurrency < 1 || *concurrency > maxBackfillConcurrency {
+			return fmt.Errorf("concurrency must be between 1 and %d", maxBackfillConcurrency)
+		}
+		return backfill(ctx, client, st, uint32(*start), uint32(*end), uint32(*concurrency))
 	default:
 		return fmt.Errorf("unknown subcommand %q", args[0])
 	}
@@ -123,7 +137,7 @@ func follow(ctx context.Context, client *lake.Client, st *store.Store, startFlag
 	}
 }
 
-func backfill(ctx context.Context, client *lake.Client, st *store.Store, start, end uint32) error {
+func backfill(ctx context.Context, client *lake.Client, st *store.Store, start, end, concurrency uint32) error {
 	name := fmt.Sprintf("backfill:%d-%d", start, end)
 	done, err := st.CheckpointLedger(ctx, name)
 	if err != nil {
@@ -144,7 +158,7 @@ func backfill(ctx context.Context, client *lake.Client, st *store.Store, start, 
 			log.Printf("backfill: stopping at ledger %d, rerun to resume", next-1)
 			return nil
 		}
-		batchEnd := next + backfillBatch - 1
+		batchEnd := next + concurrency - 1
 		if batchEnd > end {
 			batchEnd = end
 		}
@@ -156,7 +170,7 @@ func backfill(ctx context.Context, client *lake.Client, st *store.Store, start, 
 		if err := st.SetCheckpoint(ctx, name, int64(batchEnd)); err != nil {
 			return fmt.Errorf("checkpoint: %w", err)
 		}
-		if (batchEnd-start)%progressInterval < backfillBatch {
+		if (batchEnd-start)%progressInterval < concurrency {
 			log.Printf("backfill: at ledger %d of %d", batchEnd, end)
 		}
 		next = batchEnd + 1
@@ -186,13 +200,19 @@ func indexBatch(ctx context.Context, client *lake.Client, st *store.Store, from,
 		}(i)
 	}
 	wg.Wait()
+	// one transaction for the whole batch: per-ledger commits made the
+	// serial save phase the throughput ceiling once fetches ran in parallel
+	var rows []store.InvocationRow
 	for i := 0; i < count; i++ {
 		if errs[i] != nil {
 			return errs[i]
 		}
-		if err := saveResult(ctx, st, results[i]); err != nil {
-			return err
+		for _, inv := range results[i].Invocations {
+			rows = append(rows, store.InvocationRow(inv))
 		}
+	}
+	if err := st.SaveLedger(ctx, to, rows); err != nil {
+		return fmt.Errorf("save batch %d..%d: %w", from, to, err)
 	}
 	return nil
 }

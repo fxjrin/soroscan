@@ -22,7 +22,7 @@ CREATE TABLE contract_transactions (
   ledger_closed_at timestamptz NOT NULL,
   function smallint NOT NULL,
   args jsonb,
-  fee_charged integer NOT NULL,
+  fee_charged bigint NOT NULL,
   PRIMARY KEY (tx_hash, ledger_closed_at)
 );
 

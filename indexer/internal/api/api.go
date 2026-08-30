@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -16,16 +18,17 @@ import (
 const (
 	defaultLimit = 20
 	maxLimit     = 50
-	// extra rows fetched past the limit so a page can end on a whole
-	// ledger; a cursor is a ledger number, and cutting a ledger in half
-	// would silently drop its remaining transactions from the next page
-	boundaryLookahead = 20
 )
 
 var contractPattern = regexp.MustCompile(`^C[A-Z2-7]{55}$`)
 
+// a cursor names the last row of the previous page: its ledger, and its
+// transaction hash so a ledger larger than a page still paginates row by
+// row; a bare ledger number is the old form and means "below this ledger"
+var cursorPattern = regexp.MustCompile(`^([0-9]{1,10})(?:-([0-9a-f]{64}))?$`)
+
 type reader interface {
-	TransactionsByContract(ctx context.Context, contractStrkey string, beforeLedger int64, limit int) ([]store.Transaction, error)
+	TransactionsByContract(ctx context.Context, contractStrkey string, before *store.Cursor, limit int) ([]store.Transaction, error)
 }
 
 type Handler struct {
@@ -42,13 +45,15 @@ func (h *Handler) Routes() *http.ServeMux {
 	return mux
 }
 
+// FeeCharged is a string: stroop amounts are 64-bit and json numbers
+// lose precision past 2^53 in every javascript consumer
 type transactionOut struct {
 	TxHash     string          `json:"tx_hash"`
 	Ledger     uint32          `json:"ledger"`
 	ClosedAt   time.Time       `json:"closed_at"`
 	Function   string          `json:"function"`
 	Args       json.RawMessage `json:"args"`
-	FeeCharged int64           `json:"fee_charged"`
+	FeeCharged string          `json:"fee_charged"`
 }
 
 func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
@@ -66,27 +71,35 @@ func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	var cursor int64
+	var cursor *store.Cursor
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed < 1 {
-			writeError(w, http.StatusBadRequest, "cursor must be a ledger sequence")
+		parsed, ok := parseCursor(raw)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "malformed cursor")
 			return
 		}
 		cursor = parsed
 	}
 
-	rows, err := h.store.TransactionsByContract(r.Context(), contractID, cursor, limit+boundaryLookahead)
+	// one extra row answers whether another page exists without a second query
+	rows, err := h.store.TransactionsByContract(r.Context(), contractID, cursor, limit+1)
+	if errors.Is(err, store.ErrInvalidContract) {
+		writeError(w, http.StatusBadRequest, "invalid contract address")
+		return
+	}
 	if err != nil {
 		log.Printf("transactions %s: %v", contractID, err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	rows, more := trimToLedgerBoundary(rows, limit)
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
 
 	out := struct {
 		Transactions []transactionOut `json:"transactions"`
-		NextCursor   *int64           `json:"next_cursor,omitempty"`
+		NextCursor   *string          `json:"next_cursor,omitempty"`
 	}{Transactions: make([]transactionOut, len(rows))}
 	for i, row := range rows {
 		out.Transactions[i] = transactionOut{
@@ -95,33 +108,36 @@ func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
 			ClosedAt:   row.ClosedAt,
 			Function:   row.Function,
 			Args:       argsOrNull(row.ArgsJSON),
-			FeeCharged: row.FeeCharged,
+			FeeCharged: strconv.FormatInt(row.FeeCharged, 10),
 		}
 	}
 	if more && len(rows) > 0 {
-		next := int64(rows[len(rows)-1].Ledger)
+		last := rows[len(rows)-1]
+		next := fmt.Sprintf("%d-%s", last.Ledger, hex.EncodeToString(last.TxHash[:]))
 		out.NextCursor = &next
 	}
 	writeJSON(w, out)
 }
 
-// keeps whole ledgers together: the page ends at the last ledger that
-// fits inside the limit, unless a single ledger alone overflows it, in
-// which case every fetched row of that ledger is returned instead
-func trimToLedgerBoundary(rows []store.Transaction, limit int) ([]store.Transaction, bool) {
-	if len(rows) <= limit {
-		return rows, false
+func parseCursor(raw string) (*store.Cursor, bool) {
+	match := cursorPattern.FindStringSubmatch(raw)
+	if match == nil {
+		return nil, false
 	}
-	cut := limit
-	boundary := rows[limit].Ledger
-	for cut > 0 && rows[cut-1].Ledger == boundary {
-		cut--
+	ledger, err := strconv.ParseUint(match[1], 10, 32)
+	if err != nil || ledger == 0 {
+		return nil, false
 	}
-	if cut == 0 {
-		for cut = limit; cut < len(rows) && rows[cut].Ledger == boundary; cut++ {
-		}
+	cursor := &store.Cursor{Ledger: uint32(ledger)}
+	if match[2] == "" {
+		return cursor, true // bare ledger: the zero hash sorts below every row of it
 	}
-	return rows[:cut], true
+	decoded, err := hex.DecodeString(match[2])
+	if err != nil {
+		return nil, false
+	}
+	copy(cursor.TxHash[:], decoded)
+	return cursor, true
 }
 
 func argsOrNull(raw []byte) json.RawMessage {

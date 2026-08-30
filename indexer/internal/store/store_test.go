@@ -124,7 +124,7 @@ func TestSaveLedgerIdempotent(t *testing.T) {
 		t.Fatalf("checkpoint %d, want 100", checkpoint)
 	}
 
-	txs, err := st.TransactionsByContract(ctx, contract, 0, 10)
+	txs, err := st.TransactionsByContract(ctx, contract, nil, 10)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -153,6 +153,73 @@ func TestSaveLedgerIdempotent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args round trip:\ngot  %s\nwant %s", oldest.ArgsJSON, argsJSON)
+	}
+}
+
+func TestTransactionsByContractPagesThroughDenseLedger(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	st := New(pool)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_, err = pool.Exec(ctx, `TRUNCATE contract_transactions, contracts, functions, arg_addresses, checkpoints RESTART IDENTITY`)
+	if err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	contract := testStrkey(t, strkeyVersionContract, 0x01)
+	closedAt := time.Now().UTC().Truncate(time.Microsecond)
+	row := func(hash byte, ledger uint32) InvocationRow {
+		return InvocationRow{
+			ContractID: contract,
+			TxHash:     fillHash(hash),
+			Ledger:     ledger,
+			ClosedAt:   closedAt,
+			Function:   "work",
+			FeeCharged: 1,
+		}
+	}
+	// ledger 100 holds more rows than one page, the exact shape a
+	// ledger-only cursor used to lose rows on
+	if err := st.SaveLedger(ctx, 200, []InvocationRow{
+		row(0x99, 100), row(0xAA, 100), row(0xBB, 100), row(0xCC, 200),
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	first, err := st.TransactionsByContract(ctx, contract, nil, 2)
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	if len(first) != 2 || first[0].TxHash != fillHash(0xCC) || first[1].TxHash != fillHash(0xBB) {
+		t.Fatalf("unexpected first page: %+v", first)
+	}
+
+	cursor := &Cursor{Ledger: first[1].Ledger, TxHash: first[1].TxHash}
+	second, err := st.TransactionsByContract(ctx, contract, cursor, 2)
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	if len(second) != 2 || second[0].TxHash != fillHash(0xAA) || second[1].TxHash != fillHash(0x99) {
+		t.Fatalf("rows of the split ledger went missing: %+v", second)
+	}
+
+	cursor = &Cursor{Ledger: second[1].Ledger, TxHash: second[1].TxHash}
+	third, err := st.TransactionsByContract(ctx, contract, cursor, 2)
+	if err != nil {
+		t.Fatalf("third page: %v", err)
+	}
+	if len(third) != 0 {
+		t.Fatalf("expected exhausted history, got %+v", third)
 	}
 }
 

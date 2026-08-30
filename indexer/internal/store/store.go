@@ -253,13 +253,25 @@ func (s *Store) SetCheckpoint(ctx context.Context, name string, ledger int64) er
 	return nil
 }
 
+// ErrInvalidContract marks a contract address that fails strkey decoding,
+// so callers can tell bad input apart from a real storage failure.
+var ErrInvalidContract = errors.New("invalid contract address")
+
+// Cursor pins a page boundary to an exact row. The ledger alone cannot be
+// the boundary: one ledger can hold more rows than a whole page, and a
+// ledger-only cursor would silently skip the rest of it.
+type Cursor struct {
+	Ledger uint32
+	TxHash [32]byte
+}
+
 // TransactionsByContract returns up to limit invocations of a contract,
-// newest first. beforeLedger restricts the page to ledgers below it; pass 0
-// or a negative value for the newest page. An unknown contract yields no rows.
-func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey string, beforeLedger int64, limit int) ([]Transaction, error) {
+// newest first, ordered by ledger then transaction hash descending. A nil
+// cursor asks for the newest page. An unknown contract yields no rows.
+func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey string, before *Cursor, limit int) ([]Transaction, error) {
 	raw, err := decodeStrkey(contractStrkey, strkeyVersionContract)
 	if err != nil {
-		return nil, fmt.Errorf("contract id %q: %w", contractStrkey, err)
+		return nil, fmt.Errorf("%w: %q: %v", ErrInvalidContract, contractStrkey, err)
 	}
 	var contractID int16
 	err = s.pool.QueryRow(ctx, `SELECT id FROM contracts WHERE contract_id = $1`, raw[:]).Scan(&contractID)
@@ -269,42 +281,106 @@ func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey strin
 	if err != nil {
 		return nil, fmt.Errorf("query contract: %w", err)
 	}
-	if beforeLedger <= 0 {
-		beforeLedger = math.MaxInt64 // no cursor; every real ledger sequence is below this
-	}
-	rows, err := s.pool.Query(ctx,
-		`SELECT ct.ledger, ct.tx_hash, ct.ledger_closed_at, f.name, ct.args, ct.fee_charged
-		 FROM contract_transactions ct
-		 JOIN functions f ON f.id = ct.function
-		 WHERE ct.contract_id = $1 AND ct.ledger < $2::bigint
-		 ORDER BY ct.ledger DESC, ct.ledger_closed_at DESC
-		 LIMIT $3`,
-		contractID, beforeLedger, limit)
-	if err != nil {
-		return nil, fmt.Errorf("query transactions: %w", err)
-	}
-	defer rows.Close()
+	// a single query ordered by (ledger, tx_hash) cannot stream from the
+	// compressed chunks, whose order covers the ledger alone, so the page
+	// is assembled from bounded pieces that each prune by ledger: the rest
+	// of the cursor's own ledger first, then whole ledgers below it
 	var out []Transaction
 	var rawArgs [][]byte
-	for rows.Next() {
-		var t Transaction
-		var ledger int64
-		var hash, args []byte
-		if err := rows.Scan(&ledger, &hash, &t.ClosedAt, &t.Function, &args, &t.FeeCharged); err != nil {
-			return nil, fmt.Errorf("scan transaction: %w", err)
+	boundLedger := int64(math.MaxInt64) // no cursor; every real ledger is below this
+	if before != nil {
+		boundLedger = int64(before.Ledger)
+		err := s.appendTransactions(ctx, &out, &rawArgs,
+			`SELECT ct.ledger, ct.tx_hash, ct.ledger_closed_at, f.name, ct.args, ct.fee_charged
+			 FROM contract_transactions ct
+			 JOIN functions f ON f.id = ct.function
+			 WHERE ct.contract_id = $1 AND ct.ledger = $2::bigint AND ct.tx_hash < $3::bytea
+			 ORDER BY ct.tx_hash DESC
+			 LIMIT $4`,
+			contractID, boundLedger, before.TxHash[:], limit)
+		if err != nil {
+			return nil, err
 		}
-		t.Ledger = uint32(ledger)
-		copy(t.TxHash[:], hash)
-		out = append(out, t)
-		rawArgs = append(rawArgs, args)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read transactions: %w", err)
+	if remaining := limit - len(out); remaining > 0 {
+		ledgers, err := s.recentLedgers(ctx, contractID, boundLedger, remaining)
+		if err != nil {
+			return nil, err
+		}
+		if len(ledgers) > 0 {
+			err := s.appendTransactions(ctx, &out, &rawArgs,
+				`SELECT ct.ledger, ct.tx_hash, ct.ledger_closed_at, f.name, ct.args, ct.fee_charged
+				 FROM contract_transactions ct
+				 JOIN functions f ON f.id = ct.function
+				 WHERE ct.contract_id = $1 AND ct.ledger = ANY($2::bigint[])
+				 ORDER BY ct.ledger DESC, ct.tx_hash DESC`,
+				contractID, ledgers)
+			if err != nil {
+				return nil, err
+			}
+			// the ledger set can hold more rows than the page asked for; the
+			// cursor stays sound because the boundary row's ledger is in the
+			// set completely, so what is cut here is found by the next page
+			if len(out) > limit {
+				out = out[:limit]
+				rawArgs = rawArgs[:limit]
+			}
+		}
 	}
 	if err := s.expandArgs(ctx, out, rawArgs); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// recentLedgers lists the newest distinct ledgers of a contract below the
+// bound, at most max of them: one page needs at most one ledger per row.
+func (s *Store) recentLedgers(ctx context.Context, contractID int16, below int64, max int) ([]int64, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT ledger FROM contract_transactions
+		 WHERE contract_id = $1 AND ledger < $2::bigint
+		 ORDER BY ledger DESC LIMIT $3`,
+		contractID, below, max)
+	if err != nil {
+		return nil, fmt.Errorf("query ledgers: %w", err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var ledger int64
+		if err := rows.Scan(&ledger); err != nil {
+			return nil, fmt.Errorf("scan ledger: %w", err)
+		}
+		out = append(out, ledger)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read ledgers: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) appendTransactions(ctx context.Context, out *[]Transaction, rawArgs *[][]byte, sql string, params ...any) error {
+	rows, err := s.pool.Query(ctx, sql, params...)
+	if err != nil {
+		return fmt.Errorf("query transactions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t Transaction
+		var ledger int64
+		var hash, args []byte
+		if err := rows.Scan(&ledger, &hash, &t.ClosedAt, &t.Function, &args, &t.FeeCharged); err != nil {
+			return fmt.Errorf("scan transaction: %w", err)
+		}
+		t.Ledger = uint32(ledger)
+		copy(t.TxHash[:], hash)
+		*out = append(*out, t)
+		*rawArgs = append(*rawArgs, args)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read transactions: %w", err)
+	}
+	return nil
 }
 
 // expandArgs turns the stored {"$a": id} placeholders back into the full
