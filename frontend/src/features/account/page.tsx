@@ -426,11 +426,13 @@ function History({ address }: { address: string }) {
         lastToken={entries[entries.length - 1]?.lastToken}
         onMove={() => top.current?.scrollIntoView({ block: "start" })}
       />
-      <DataTable columns={HISTORY_COLUMNS} minWidth={HISTORY_MIN_WIDTH}>
-        {entries.map((entry) => (
-          <HistoryRow key={entry.hash + entry.lastToken} entry={entry} />
-        ))}
-      </DataTable>
+      <div className="rows-in">
+        <DataTable columns={HISTORY_COLUMNS} minWidth={HISTORY_MIN_WIDTH}>
+          {entries.map((entry) => (
+            <HistoryRow key={entry.hash + entry.lastToken} entry={entry} />
+          ))}
+        </DataTable>
+      </div>
     </div>
   );
 }
