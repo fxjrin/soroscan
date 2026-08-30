@@ -124,10 +124,11 @@ func TestSaveLedgerIdempotent(t *testing.T) {
 		t.Fatalf("checkpoint %d, want 100", checkpoint)
 	}
 
-	txs, err := st.TransactionsByContract(ctx, contract, nil, 10)
+	page, err := st.TransactionsByContract(ctx, contract, nil, 10, TransactionFilter{})
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
+	txs := page.Transactions
 	if len(txs) != 2 {
 		t.Fatalf("got %d transactions, want 2", len(txs))
 	}
@@ -196,30 +197,99 @@ func TestTransactionsByContractPagesThroughDenseLedger(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	first, err := st.TransactionsByContract(ctx, contract, nil, 2)
+	firstPage, err := st.TransactionsByContract(ctx, contract, nil, 2, TransactionFilter{})
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
+	first := firstPage.Transactions
 	if len(first) != 2 || first[0].TxHash != fillHash(0xCC) || first[1].TxHash != fillHash(0xBB) {
 		t.Fatalf("unexpected first page: %+v", first)
 	}
 
 	cursor := &Cursor{Ledger: first[1].Ledger, TxHash: first[1].TxHash}
-	second, err := st.TransactionsByContract(ctx, contract, cursor, 2)
+	secondPage, err := st.TransactionsByContract(ctx, contract, cursor, 2, TransactionFilter{})
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
+	second := secondPage.Transactions
 	if len(second) != 2 || second[0].TxHash != fillHash(0xAA) || second[1].TxHash != fillHash(0x99) {
 		t.Fatalf("rows of the split ledger went missing: %+v", second)
 	}
 
 	cursor = &Cursor{Ledger: second[1].Ledger, TxHash: second[1].TxHash}
-	third, err := st.TransactionsByContract(ctx, contract, cursor, 2)
+	thirdPage, err := st.TransactionsByContract(ctx, contract, cursor, 2, TransactionFilter{})
 	if err != nil {
 		t.Fatalf("third page: %v", err)
 	}
-	if len(third) != 0 {
-		t.Fatalf("expected exhausted history, got %+v", third)
+	if len(thirdPage.Transactions) != 0 {
+		t.Fatalf("expected exhausted history, got %+v", thirdPage.Transactions)
+	}
+}
+
+func TestTransactionsByContractFilters(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	st := New(pool)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_, err = pool.Exec(ctx, `TRUNCATE contract_transactions, contracts, functions, arg_addresses, checkpoints RESTART IDENTITY`)
+	if err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	contract := testStrkey(t, strkeyVersionContract, 0x01)
+	early := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	late := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	rows := []InvocationRow{
+		{ContractID: contract, TxHash: fillHash(0xAA), Ledger: 100, ClosedAt: early, Function: "plant", FeeCharged: 1},
+		{ContractID: contract, TxHash: fillHash(0xBB), Ledger: 100, ClosedAt: early, Function: "work", FeeCharged: 1},
+		{ContractID: contract, TxHash: fillHash(0xCC), Ledger: 900, ClosedAt: late, Function: "work", FeeCharged: 1},
+	}
+	if err := st.SaveLedger(ctx, 900, rows); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	byFunction, err := st.TransactionsByContract(ctx, contract, nil, 10, TransactionFilter{Function: "work"})
+	if err != nil {
+		t.Fatalf("function filter: %v", err)
+	}
+	if len(byFunction.Transactions) != 2 ||
+		byFunction.Transactions[0].TxHash != fillHash(0xCC) ||
+		byFunction.Transactions[1].TxHash != fillHash(0xBB) {
+		t.Fatalf("unexpected function page: %+v", byFunction.Transactions)
+	}
+
+	unknown, err := st.TransactionsByContract(ctx, contract, nil, 10, TransactionFilter{Function: "nope"})
+	if err != nil || len(unknown.Transactions) != 0 {
+		t.Fatalf("unknown function should match nothing: %+v %v", unknown.Transactions, err)
+	}
+
+	byTime, err := st.TransactionsByContract(ctx, contract, nil, 10, TransactionFilter{To: early.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("time filter: %v", err)
+	}
+	if len(byTime.Transactions) != 2 || byTime.Transactions[0].Ledger != 100 {
+		t.Fatalf("unexpected time page: %+v", byTime.Transactions)
+	}
+
+	// the windowed path must find the same rows the streaming path does,
+	// and report an exhausted scan rather than a continue cursor
+	scanned, err := st.TransactionsByContract(ctx, contract, &Cursor{Ledger: 901},
+		10, TransactionFilter{Function: "work", ContinueScan: true})
+	if err != nil {
+		t.Fatalf("windowed scan: %v", err)
+	}
+	if len(scanned.Transactions) != 2 || scanned.ContinueLedger != 0 {
+		t.Fatalf("unexpected windowed page: %+v continue %d", scanned.Transactions, scanned.ContinueLedger)
 	}
 }
 

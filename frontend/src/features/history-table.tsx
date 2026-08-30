@@ -54,18 +54,24 @@ export function Pager({
   records,
   pageSize,
   lastToken,
+  more,
   onMove,
+  trailing,
 }: {
   pages: CursorPages;
   records: number;
   pageSize: number;
   lastToken?: string;
+  /** providers that state whether more exists pass it; the rest are guessed */
+  more?: boolean;
   /** a new page starts at its own beginning, not where the last one ended */
   onMove: () => void;
+  /** extra controls rendered at the far end of the bar */
+  trailing?: React.ReactNode;
 }) {
-  // the provider does not say how much is left, so a full page is the only
-  // hint that another one exists
-  const hasMore = records === pageSize && lastToken !== undefined;
+  // without an explicit answer, a full page is the only hint that another
+  // one exists: the provider does not say how much is left
+  const hasMore = more ?? (records === pageSize && lastToken !== undefined);
   return (
     // the table bleeds three units past this container on both sides, so the
     // bar bleeds with it or rows show through at the edges while scrolling
@@ -116,6 +122,7 @@ export function Pager({
       >
         <ChevronRight className="size-4" aria-hidden="true" />
       </button>
+      {trailing !== undefined && <div className="ms-auto">{trailing}</div>}
     </div>
   );
 }

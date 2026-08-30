@@ -265,56 +265,123 @@ type Cursor struct {
 	TxHash [32]byte
 }
 
+// TransactionFilter narrows a contract's history page.
+type TransactionFilter struct {
+	// Function keeps only invocations of this function; empty keeps all.
+	Function string
+	// From and To bound the ledger close time; a zero value leaves that
+	// side open.
+	From time.Time
+	To   time.Time
+	// ContinueScan resumes a windowed scan strictly below the cursor's
+	// ledger, after an earlier page ran out of budget before filling.
+	ContinueScan bool
+}
+
+// Page is one result page. A page shorter than the limit can still carry
+// ContinueLedger: the scan ran out of budget, not history, and the next
+// request picks up strictly below that ledger.
+type Page struct {
+	Transactions   []Transaction
+	ContinueLedger uint32
+}
+
+const (
+	// a function-filtered page first tries the streaming plan, which is
+	// fast whenever the function occurs recently but must read the whole
+	// history when it does not; past this deadline the windowed scan takes
+	// over so one request can never run away
+	fastPathTimeout = 2 * time.Second
+	// windowed-scan budget per request, sized so the densest contract
+	// stays around a second: each window decompresses only its own slice
+	scanWindowLedgers  = 30000
+	scanWindowsPerPage = 4
+)
+
 // TransactionsByContract returns up to limit invocations of a contract,
 // newest first, ordered by ledger then transaction hash descending. A nil
 // cursor asks for the newest page. An unknown contract yields no rows.
-func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey string, before *Cursor, limit int) ([]Transaction, error) {
+func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey string, before *Cursor, limit int, filter TransactionFilter) (Page, error) {
 	raw, err := decodeStrkey(contractStrkey, strkeyVersionContract)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %q: %v", ErrInvalidContract, contractStrkey, err)
+		return Page{}, fmt.Errorf("%w: %q: %v", ErrInvalidContract, contractStrkey, err)
 	}
 	var contractID int16
 	err = s.pool.QueryRow(ctx, `SELECT id FROM contracts WHERE contract_id = $1`, raw[:]).Scan(&contractID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return Page{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("query contract: %w", err)
+		return Page{}, fmt.Errorf("query contract: %w", err)
 	}
-	// a single query ordered by (ledger, tx_hash) cannot stream from the
-	// compressed chunks, whose order covers the ledger alone, so the page
-	// is assembled from bounded pieces that each prune by ledger: the rest
-	// of the cursor's own ledger first, then whole ledgers below it
+	functionID := int16(-1)
+	if filter.Function != "" {
+		err = s.pool.QueryRow(ctx, `SELECT id FROM functions WHERE name = $1`, filter.Function).Scan(&functionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Page{}, nil // a name never seen on chain matches nothing
+		}
+		if err != nil {
+			return Page{}, fmt.Errorf("query function: %w", err)
+		}
+	}
+	if functionID < 0 {
+		out, err := s.pageByLedgers(ctx, contractID, functionID, before, limit, filter)
+		if err != nil {
+			return Page{}, err
+		}
+		return Page{Transactions: out}, nil
+	}
+	if !filter.ContinueScan {
+		fastCtx, cancel := context.WithTimeout(ctx, fastPathTimeout)
+		out, err := s.pageByLedgers(fastCtx, contractID, functionID, before, limit, filter)
+		cancel()
+		if err == nil {
+			return Page{Transactions: out}, nil
+		}
+		if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return Page{}, err
+		}
+	}
+	return s.pageByWindows(ctx, contractID, functionID, before, limit, filter)
+}
+
+// pageByLedgers assembles a page from bounded pieces that each prune by
+// ledger: the rest of the cursor's own ledger first, then whole ledgers
+// below it. A single query ordered by (ledger, tx_hash) cannot stream
+// from the compressed chunks, whose order covers the ledger alone.
+func (s *Store) pageByLedgers(ctx context.Context, contractID, functionID int16, before *Cursor, limit int, filter TransactionFilter) ([]Transaction, error) {
 	var out []Transaction
 	var rawArgs [][]byte
 	boundLedger := int64(math.MaxInt64) // no cursor; every real ledger is below this
 	if before != nil {
 		boundLedger = int64(before.Ledger)
+		pred, predArgs := filterPredicates(4, functionID, filter)
 		err := s.appendTransactions(ctx, &out, &rawArgs,
 			`SELECT ct.ledger, ct.tx_hash, ct.ledger_closed_at, f.name, ct.args, ct.fee_charged
 			 FROM contract_transactions ct
 			 JOIN functions f ON f.id = ct.function
-			 WHERE ct.contract_id = $1 AND ct.ledger = $2::bigint AND ct.tx_hash < $3::bytea
+			 WHERE ct.contract_id = $1 AND ct.ledger = $2::bigint AND ct.tx_hash < $3::bytea`+pred+`
 			 ORDER BY ct.tx_hash DESC
-			 LIMIT $4`,
-			contractID, boundLedger, before.TxHash[:], limit)
+			 LIMIT `+fmt.Sprintf("$%d", 4+len(predArgs)),
+			append(append([]any{contractID, boundLedger, before.TxHash[:]}, predArgs...), limit)...)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if remaining := limit - len(out); remaining > 0 {
-		ledgers, err := s.recentLedgers(ctx, contractID, boundLedger, remaining)
+		ledgers, err := s.recentLedgers(ctx, contractID, functionID, boundLedger, remaining, filter)
 		if err != nil {
 			return nil, err
 		}
 		if len(ledgers) > 0 {
+			pred, predArgs := filterPredicates(3, functionID, filter)
 			err := s.appendTransactions(ctx, &out, &rawArgs,
 				`SELECT ct.ledger, ct.tx_hash, ct.ledger_closed_at, f.name, ct.args, ct.fee_charged
 				 FROM contract_transactions ct
 				 JOIN functions f ON f.id = ct.function
-				 WHERE ct.contract_id = $1 AND ct.ledger = ANY($2::bigint[])
+				 WHERE ct.contract_id = $1 AND ct.ledger = ANY($2::bigint[])`+pred+`
 				 ORDER BY ct.ledger DESC, ct.tx_hash DESC`,
-				contractID, ledgers)
+				append([]any{contractID, ledgers}, predArgs...)...)
 			if err != nil {
 				return nil, err
 			}
@@ -333,14 +400,144 @@ func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey strin
 	return out, nil
 }
 
-// recentLedgers lists the newest distinct ledgers of a contract below the
+// pageByWindows walks fixed ledger windows downward, so a function too
+// rare for the streaming plan still makes deterministic progress: every
+// window decompresses only its own slice of the contract's history.
+func (s *Store) pageByWindows(ctx context.Context, contractID, functionID int16, before *Cursor, limit int, filter TransactionFilter) (Page, error) {
+	floor, err := s.scanFloor(ctx, contractID, filter.From)
+	if err != nil {
+		return Page{}, err
+	}
+	if floor == 0 {
+		return Page{}, nil // nothing matches the time bound at all
+	}
+	rowBound := false
+	var hi int64
+	if before != nil {
+		if filter.ContinueScan {
+			hi = int64(before.Ledger)
+		} else {
+			hi = int64(before.Ledger) + 1 // the cursor's own ledger still owes rows below its hash
+			rowBound = true
+		}
+	} else {
+		// anchor on the newest matching row, not on infinity: windows above
+		// the real history would burn the whole budget scanning nothing
+		ceiling, err := s.scanCeiling(ctx, contractID, filter.To)
+		if err != nil {
+			return Page{}, err
+		}
+		if ceiling == 0 {
+			return Page{}, nil
+		}
+		hi = ceiling + 1
+	}
+	var out []Transaction
+	var rawArgs [][]byte
+	for window := 0; window < scanWindowsPerPage && hi > floor && len(out) <= limit; window++ {
+		lo := hi - scanWindowLedgers
+		if lo < floor {
+			lo = floor
+		}
+		pred, predArgs := filterPredicates(4, functionID, filter)
+		sql := `SELECT ct.ledger, ct.tx_hash, ct.ledger_closed_at, f.name, ct.args, ct.fee_charged
+			 FROM contract_transactions ct
+			 JOIN functions f ON f.id = ct.function
+			 WHERE ct.contract_id = $1 AND ct.ledger >= $2::bigint AND ct.ledger < $3::bigint` + pred
+		args := append([]any{contractID, lo, hi}, predArgs...)
+		if rowBound {
+			sql += fmt.Sprintf(` AND (ct.ledger < $%d::bigint OR ct.tx_hash < $%d::bytea)`, len(args)+1, len(args)+2)
+			args = append(args, int64(before.Ledger), before.TxHash[:])
+			rowBound = false
+		}
+		sql += ` ORDER BY ct.ledger DESC, ct.tx_hash DESC LIMIT ` + fmt.Sprintf("$%d", len(args)+1)
+		args = append(args, limit+1-len(out))
+		if err := s.appendTransactions(ctx, &out, &rawArgs, sql, args...); err != nil {
+			return Page{}, err
+		}
+		hi = lo
+	}
+	page := Page{Transactions: out}
+	if len(out) <= limit && hi > floor {
+		page.ContinueLedger = uint32(hi) // budget ran out before history did
+	}
+	if err := s.expandArgs(ctx, page.Transactions, rawArgs); err != nil {
+		return Page{}, err
+	}
+	return page, nil
+}
+
+// scanCeiling is the newest ledger a windowed scan starts under: the last
+// row of the contract, or of its time bound. Zero means nothing matches.
+func (s *Store) scanCeiling(ctx context.Context, contractID int16, to time.Time) (int64, error) {
+	sql := `SELECT ledger FROM contract_transactions WHERE contract_id = $1`
+	args := []any{contractID}
+	if !to.IsZero() {
+		sql += ` AND ledger_closed_at <= $2`
+		args = append(args, to)
+	}
+	sql += ` ORDER BY ledger DESC LIMIT 1`
+	var ledger int64
+	err := s.pool.QueryRow(ctx, sql, args...).Scan(&ledger)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("query scan ceiling: %w", err)
+	}
+	return ledger, nil
+}
+
+// scanFloor is the oldest ledger a windowed scan must reach: the first
+// row of the contract, or of its time bound. Zero means nothing matches.
+func (s *Store) scanFloor(ctx context.Context, contractID int16, from time.Time) (int64, error) {
+	sql := `SELECT ledger FROM contract_transactions WHERE contract_id = $1`
+	args := []any{contractID}
+	if !from.IsZero() {
+		sql += ` AND ledger_closed_at >= $2`
+		args = append(args, from)
+	}
+	sql += ` ORDER BY ledger ASC LIMIT 1`
+	var ledger int64
+	err := s.pool.QueryRow(ctx, sql, args...).Scan(&ledger)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("query scan floor: %w", err)
+	}
+	return ledger, nil
+}
+
+// filterPredicates renders the optional function and time conditions with
+// parameter numbers starting at next, for appending to a base query.
+func filterPredicates(next int, functionID int16, filter TransactionFilter) (string, []any) {
+	var sql strings.Builder
+	var args []any
+	if functionID >= 0 {
+		fmt.Fprintf(&sql, " AND ct.function = $%d", next+len(args))
+		args = append(args, functionID)
+	}
+	if !filter.From.IsZero() {
+		fmt.Fprintf(&sql, " AND ct.ledger_closed_at >= $%d", next+len(args))
+		args = append(args, filter.From)
+	}
+	if !filter.To.IsZero() {
+		fmt.Fprintf(&sql, " AND ct.ledger_closed_at <= $%d", next+len(args))
+		args = append(args, filter.To)
+	}
+	return sql.String(), args
+}
+
+// recentLedgers lists the newest distinct matching ledgers below the
 // bound, at most max of them: one page needs at most one ledger per row.
-func (s *Store) recentLedgers(ctx context.Context, contractID int16, below int64, max int) ([]int64, error) {
+func (s *Store) recentLedgers(ctx context.Context, contractID, functionID int16, below int64, max int, filter TransactionFilter) ([]int64, error) {
+	pred, predArgs := filterPredicates(3, functionID, filter)
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT ledger FROM contract_transactions
-		 WHERE contract_id = $1 AND ledger < $2::bigint
-		 ORDER BY ledger DESC LIMIT $3`,
-		contractID, below, max)
+		`SELECT DISTINCT ct.ledger FROM contract_transactions ct
+		 WHERE ct.contract_id = $1 AND ct.ledger < $2::bigint`+pred+`
+		 ORDER BY ct.ledger DESC LIMIT `+fmt.Sprintf("$%d", 3+len(predArgs)),
+		append(append([]any{contractID, below}, predArgs...), max)...)
 	if err != nil {
 		return nil, fmt.Errorf("query ledgers: %w", err)
 	}

@@ -24,11 +24,14 @@ var contractPattern = regexp.MustCompile(`^C[A-Z2-7]{55}$`)
 
 // a cursor names the last row of the previous page: its ledger, and its
 // transaction hash so a ledger larger than a page still paginates row by
-// row; a bare ledger number is the old form and means "below this ledger"
-var cursorPattern = regexp.MustCompile(`^([0-9]{1,10})(?:-([0-9a-f]{64}))?$`)
+// row. A bare ledger number is the old form and means "below this ledger";
+// the scan- prefix resumes a windowed search that ran out of budget
+var cursorPattern = regexp.MustCompile(`^(scan-)?([0-9]{1,10})(?:-([0-9a-f]{64}))?$`)
+
+var functionPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 type reader interface {
-	TransactionsByContract(ctx context.Context, contractStrkey string, before *store.Cursor, limit int) ([]store.Transaction, error)
+	TransactionsByContract(ctx context.Context, contractStrkey string, before *store.Cursor, limit int, filter store.TransactionFilter) (store.Page, error)
 }
 
 type Handler struct {
@@ -71,18 +74,47 @@ func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
+	var filter store.TransactionFilter
+	if raw := r.URL.Query().Get("function"); raw != "" {
+		if !functionPattern.MatchString(raw) {
+			writeError(w, http.StatusBadRequest, "malformed function name")
+			return
+		}
+		filter.Function = raw
+	}
+	for name, dst := range map[string]*time.Time{"from": &filter.From, "to": &filter.To} {
+		raw := r.URL.Query().Get(name)
+		if raw == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, name+" must be an RFC 3339 timestamp")
+			return
+		}
+		*dst = parsed
+	}
+	if !filter.From.IsZero() && !filter.To.IsZero() && filter.To.Before(filter.From) {
+		writeError(w, http.StatusBadRequest, "to must not be before from")
+		return
+	}
 	var cursor *store.Cursor
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
-		parsed, ok := parseCursor(raw)
+		parsed, continueScan, ok := parseCursor(raw)
 		if !ok {
 			writeError(w, http.StatusBadRequest, "malformed cursor")
 			return
 		}
+		if continueScan && filter.Function == "" {
+			writeError(w, http.StatusBadRequest, "malformed cursor")
+			return
+		}
 		cursor = parsed
+		filter.ContinueScan = continueScan
 	}
 
 	// one extra row answers whether another page exists without a second query
-	rows, err := h.store.TransactionsByContract(r.Context(), contractID, cursor, limit+1)
+	page, err := h.store.TransactionsByContract(r.Context(), contractID, cursor, limit+1, filter)
 	if errors.Is(err, store.ErrInvalidContract) {
 		writeError(w, http.StatusBadRequest, "invalid contract address")
 		return
@@ -92,6 +124,7 @@ func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	rows := page.Transactions
 	more := len(rows) > limit
 	if more {
 		rows = rows[:limit]
@@ -115,29 +148,36 @@ func (h *Handler) contractTransactions(w http.ResponseWriter, r *http.Request) {
 		last := rows[len(rows)-1]
 		next := fmt.Sprintf("%d-%s", last.Ledger, hex.EncodeToString(last.TxHash[:]))
 		out.NextCursor = &next
+	} else if page.ContinueLedger > 0 {
+		next := fmt.Sprintf("scan-%d", page.ContinueLedger)
+		out.NextCursor = &next
 	}
 	writeJSON(w, out)
 }
 
-func parseCursor(raw string) (*store.Cursor, bool) {
+func parseCursor(raw string) (*store.Cursor, bool, bool) {
 	match := cursorPattern.FindStringSubmatch(raw)
 	if match == nil {
-		return nil, false
+		return nil, false, false
 	}
-	ledger, err := strconv.ParseUint(match[1], 10, 32)
+	continueScan := match[1] != ""
+	if continueScan && match[3] != "" {
+		return nil, false, false // a scan cursor is a bare ledger by construction
+	}
+	ledger, err := strconv.ParseUint(match[2], 10, 32)
 	if err != nil || ledger == 0 {
-		return nil, false
+		return nil, false, false
 	}
 	cursor := &store.Cursor{Ledger: uint32(ledger)}
-	if match[2] == "" {
-		return cursor, true // bare ledger: the zero hash sorts below every row of it
+	if match[3] == "" {
+		return cursor, continueScan, true // bare ledger: the zero hash sorts below every row of it
 	}
-	decoded, err := hex.DecodeString(match[2])
+	decoded, err := hex.DecodeString(match[3])
 	if err != nil {
-		return nil, false
+		return nil, false, false
 	}
 	copy(cursor.TxHash[:], decoded)
-	return cursor, true
+	return cursor, false, true
 }
 
 func argsOrNull(raw []byte) json.RawMessage {
