@@ -1,8 +1,30 @@
 import type { ReactNode } from "react";
 import { Address } from "@/components/address";
+import { AssetIcon } from "@/components/asset-icon";
 import { FunctionChip } from "@/components/op-tag";
 import { formatDecimalDisplay } from "@/lib/format";
 import type { PrimaryOp } from "@/lib/activity";
+
+/** An asset named in a sentence: the amount, its icon, and its code. */
+function AssetMention({
+  amount,
+  code,
+  issuer,
+}: {
+  amount?: string;
+  code: string;
+  issuer?: string;
+}) {
+  return (
+    // the literal spaces cost the flex layout nothing and keep the
+    // sentence reading as words when selected, copied, or matched
+    <span className="flex items-center gap-1.5">
+      {amount === undefined ? null : <span>{amount}</span>}{" "}
+      <AssetIcon code={code} issuer={issuer} />
+      <span>{code}</span>
+    </span>
+  );
+}
 /**
  * One human sentence for what an operation did, blockscout-style, built from
  * the decoded operation. Every piece is a direct flex item so word gaps and
@@ -29,7 +51,13 @@ export function ActionSummary({
       action =
         amount && op.assetCode && op.to ? (
           <>
-            <span>{`sent ${amount} ${op.assetCode} to`}</span>
+            <span>sent</span>{" "}
+            <AssetMention
+              amount={amount}
+              code={op.assetCode}
+              issuer={op.assetIssuer}
+            />{" "}
+            <span>to</span>
             <Address value={op.to} />
           </>
         ) : (
@@ -51,17 +79,36 @@ export function ActionSummary({
           ? null
           : ` via ${op.hops} ${op.hops === 1 ? "hop" : "hops"}`;
       action = swap ? (
-        op.to !== undefined && op.to !== op.from ? (
-          <>
-            <span>{`swapped ${sourceAmount} ${op.sourceAssetCode} for ${amount} ${op.assetCode}${via ?? ""} to`}</span>
-            <Address value={op.to} />
-          </>
-        ) : (
-          <span>{`swapped ${sourceAmount} ${op.sourceAssetCode} for ${amount} ${op.assetCode}${via ?? ""}`}</span>
-        )
+        <>
+          <span>swapped</span>{" "}
+          <AssetMention
+            amount={sourceAmount}
+            code={op.sourceAssetCode ?? ""}
+            issuer={op.sourceAssetIssuer}
+          />{" "}
+          <span>for</span>
+          <AssetMention
+            amount={amount}
+            code={op.assetCode ?? ""}
+            issuer={op.assetIssuer}
+          />{" "}
+          {via === null ? null : <span>{via.trim()}</span>}
+          {op.to !== undefined && op.to !== op.from ? (
+            <>
+              <span>to</span>
+              <Address value={op.to} />
+            </>
+          ) : null}
+        </>
       ) : amount && op.assetCode && op.to ? (
         <>
-          <span>{`sent ${amount} ${op.assetCode} to`}</span>
+          <span>sent</span>
+          <AssetMention
+            amount={amount}
+            code={op.assetCode}
+            issuer={op.assetIssuer}
+          />
+          <span>to</span>
           <Address value={op.to} />
         </>
       ) : (
@@ -79,7 +126,13 @@ export function ActionSummary({
           <span>changed a trustline</span>
         ) : op.limit === "0" ? (
           <>
-            <span>{`removed the ${asset} trustline`}</span>
+            <span>removed the</span>
+            {op.assetCode === undefined ? (
+              <span>{asset}</span>
+            ) : (
+              <AssetMention code={op.assetCode} issuer={op.assetIssuer} />
+            )}
+            <span>trustline</span>
             {op.to ? (
               <>
                 <span>issued by</span>
@@ -89,11 +142,15 @@ export function ActionSummary({
           </>
         ) : (
           <>
-            <span>
-              {op.limit === undefined
-                ? `trusted ${asset}`
-                : `trusted ${asset} up to ${formatDecimalDisplay(op.limit)}`}
-            </span>
+            <span>trusted</span>
+            {op.assetCode === undefined ? (
+              <span>{asset}</span>
+            ) : (
+              <AssetMention code={op.assetCode} issuer={op.assetIssuer} />
+            )}
+            {op.limit === undefined ? null : (
+              <span>{`up to ${formatDecimalDisplay(op.limit)}`}</span>
+            )}
             {op.to ? (
               <>
                 <span>from</span>
@@ -110,14 +167,24 @@ export function ActionSummary({
     case "manage_buy_offer":
       action =
         amount && op.assetCode && op.buyingAssetCode ? (
-          <span>
-            {op.type === "manage_buy_offer"
-              ? `offered to buy ${amount} ${op.assetCode} with ${op.buyingAssetCode}`
-              : `offered ${amount} ${op.assetCode} for ${op.buyingAssetCode}`}
-            {op.price === undefined
-              ? ""
-              : ` at ${formatDecimalDisplay(op.price)}`}
-          </span>
+          <>
+            <span>
+              {op.type === "manage_buy_offer" ? "offered to buy" : "offered"}
+            </span>
+            <AssetMention
+              amount={amount}
+              code={op.assetCode}
+              issuer={op.assetIssuer}
+            />
+            <span>{op.type === "manage_buy_offer" ? "with" : "for"}</span>
+            <AssetMention
+              code={op.buyingAssetCode}
+              issuer={op.buyingAssetIssuer}
+            />
+            {op.price === undefined ? null : (
+              <span>{`at ${formatDecimalDisplay(op.price)}`}</span>
+            )}
+          </>
         ) : (
           <span>placed a DEX offer</span>
         );
@@ -142,7 +209,8 @@ export function ActionSummary({
           <>
             <span>created account</span>
             <Address value={op.to} />
-            <span>{`with ${formatDecimalDisplay(op.amount)} XLM`}</span>
+            <span>with</span>
+            <AssetMention amount={formatDecimalDisplay(op.amount)} code="XLM" />
           </>
         ) : (
           <span>created an account</span>

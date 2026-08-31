@@ -614,7 +614,10 @@ export function HomePage() {
                       {row.op?.amount ? (
                         <span className="flex items-center gap-1.5 font-mono">
                           {row.op.assetCode ? (
-                            <AssetIcon code={row.op.assetCode} size={14} />
+                            <AssetIcon
+                              code={row.op.assetCode}
+                              issuer={row.op.assetIssuer}
+                            />
                           ) : null}
                           {formatDecimalDisplay(row.op.amount)}
                           {row.op.assetCode ? (
@@ -625,7 +628,10 @@ export function HomePage() {
                         </span>
                       ) : row.op?.assetCode ? (
                         <span className="flex items-center gap-1.5 font-mono">
-                          <AssetIcon code={row.op.assetCode} size={14} />
+                          <AssetIcon
+                            code={row.op.assetCode}
+                            issuer={row.op.assetIssuer}
+                          />
                           <span className="text-muted-foreground">
                             {row.op.assetCode}
                           </span>

@@ -14,11 +14,14 @@ export interface PrimaryOp {
   to?: string;
   amount?: string;
   assetCode?: string;
+  assetIssuer?: string;
   /** what went in, when an operation trades one asset for another */
   sourceAmount?: string;
   sourceAssetCode?: string;
+  sourceAssetIssuer?: string;
   /** what an offer asks for, and at what rate */
   buyingAssetCode?: string;
+  buyingAssetIssuer?: string;
   price?: string;
   /** the ceiling a trustline sets; "0" retires the line */
   limit?: string;
@@ -109,7 +112,13 @@ function presentInvoke(op: OperationRecord, base: PrimaryOp): PrimaryOp {
     assetCode: moved
       ? assetCodeOf(moved.asset_type, moved.asset_code)
       : undefined,
+    assetIssuer: moved?.asset_issuer,
   };
+}
+
+function claimableIssuerOf(asset: string | undefined): string | undefined {
+  const issuer = asset?.split(":")[1];
+  return issuer === undefined || issuer === "" ? undefined : issuer;
 }
 
 // claimable balance asset field is "native" or "CODE:ISSUER"
@@ -139,6 +148,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         to: op.to,
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.asset_type, op.asset_code),
+        assetIssuer: op.asset_issuer,
       };
     // a path payment is a swap when it lands back on the sender, and a
     // payment in one asset paid for with another when it does not
@@ -162,8 +172,10 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         to: op.to,
         amount: amountOf(op.amount),
         assetCode,
+        assetIssuer: op.asset_issuer,
         sourceAmount: amountOf(op.source_amount),
         sourceAssetCode,
+        sourceAssetIssuer: op.source_asset_issuer,
         hops: op.path?.length,
       };
     }
@@ -187,10 +199,12 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         toHint: "order book",
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.selling_asset_type, op.selling_asset_code),
+        assetIssuer: op.selling_asset_issuer,
         buyingAssetCode: assetCodeOf(
           op.buying_asset_type,
           op.buying_asset_code,
         ),
+        buyingAssetIssuer: op.buying_asset_issuer,
         price: amountOf(op.price),
       };
     case "manage_buy_offer":
@@ -200,10 +214,12 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         toHint: "order book",
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.buying_asset_type, op.buying_asset_code),
+        assetIssuer: op.buying_asset_issuer,
         buyingAssetCode: assetCodeOf(
           op.selling_asset_type,
           op.selling_asset_code,
         ),
+        buyingAssetIssuer: op.selling_asset_issuer,
         price: amountOf(op.price),
       };
     case "liquidity_pool_deposit":
@@ -216,6 +232,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         toHint: "claimable balance",
         amount: amountOf(op.amount),
         assetCode: claimableCodeOf(op.asset),
+        assetIssuer: claimableIssuerOf(op.asset),
       };
     case "claim_claimable_balance":
       return { ...base, from: op.source_account, toHint: "claimable balance" };
@@ -226,6 +243,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         to: op.source_account,
         amount: amountOf(op.amount),
         assetCode: assetCodeOf(op.asset_type, op.asset_code),
+        assetIssuer: op.asset_issuer,
       };
     case "set_trust_line_flags":
     case "allow_trust":
@@ -238,6 +256,7 @@ export function presentOperation(op: OperationRecord): PrimaryOp {
         to,
         toHint: to === undefined ? "liquidity pool" : undefined,
         assetCode: assetCodeOf(op.asset_type, op.asset_code),
+        assetIssuer: op.asset_issuer,
         limit: amountOf(op.limit),
       };
     }

@@ -169,3 +169,20 @@ export async function fetchLedgerSoroban(
     indexed: body.indexed,
   };
 }
+
+/**
+ * The proxy url for an asset's icon, or undefined where no indexer runs.
+ * The service resolves the issuer's own SEP-1 metadata server side, so
+ * viewers never talk to issuer infrastructure.
+ */
+export function assetIconUrl(
+  network: NetworkId,
+  code: string,
+  issuer: string,
+): string | undefined {
+  const urls = NETWORKS[network].indexerUrls;
+  if (urls.length === 0) {
+    return undefined;
+  }
+  return `${urls[0]}/assets/${code}/${issuer}/icon`;
+}

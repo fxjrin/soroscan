@@ -18,7 +18,7 @@ export function NetChangeLine({ change }: { change: NetBalanceChange }) {
             : "inline-flex items-center gap-1.5 font-mono text-emerald-700 dark:text-emerald-400"
         }
       >
-        <AssetIcon code={change.assetCode} size={14} />
+        <AssetIcon code={change.assetCode} issuer={change.assetIssuer} />
         <span>
           {change.amount.startsWith("-") ? "" : "+"}
           {change.amount} {change.assetCode}

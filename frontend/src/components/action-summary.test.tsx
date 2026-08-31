@@ -27,7 +27,19 @@ function sentenceOf(op: Partial<OperationRecord>): string {
       </TooltipProvider>
     </MemoryRouter>,
   );
-  return screen.getByRole("paragraph").textContent ?? "";
+  // the sentence renders as flex pieces, so the readable form is the
+  // visible text joined by spaces, without the icon chips' letters
+  const clone = screen.getByRole("paragraph").cloneNode(true) as HTMLElement;
+  clone
+    .querySelectorAll('[aria-hidden="true"]')
+    .forEach((node) => node.remove());
+  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+  const parts: string[] = [];
+  while (walker.nextNode()) {
+    const text = walker.currentNode.textContent?.trim();
+    if (text) parts.push(text);
+  }
+  return parts.join(" ");
 }
 
 test("a swap says what went in and what came out", () => {
@@ -99,7 +111,7 @@ test("a zero ceiling reads as retiring the line, not as trusting zero", () => {
       asset_code: "USDC",
       limit: "0",
     }),
-  ).toContain("removed the USDC trustlineissued by");
+  ).toContain("removed the USDC trustline issued by");
 });
 
 test("a pool share trustline has no issuer to name", () => {

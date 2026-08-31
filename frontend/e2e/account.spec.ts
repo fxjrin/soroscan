@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { blockLiveHosts, HORIZON_PROVIDERS, RPC_PROVIDERS } from "./hermetic";
+import {
+  blockLiveHosts,
+  HORIZON_PROVIDERS,
+  INDEXER,
+  RPC_PROVIDERS,
+} from "./hermetic";
 
 const G = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI";
 const ISSUER = "GAEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSH7S";
@@ -380,6 +385,27 @@ test("renders holdings, signing, and identity", async ({ page }) => {
 
 // the summary carries links now, so a click has to land on the chevron
 // rather than in the middle of the row, where an address would take it
+test("a held asset upgrades its chip to the issuer's icon", async ({
+  page,
+}) => {
+  // a real 1x1 png; the icon proxy would serve exactly such bytes
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await page.route(INDEXER, (route) => {
+    if (route.request().url().endsWith("/icon")) {
+      return route.fulfill({ body: PNG, contentType: "image/png" });
+    }
+    return route.fulfill({ status: 404, json: { error: "no icon" } });
+  });
+
+  await page.goto(`/account/${G}`);
+
+  const icon = page.locator(`img[src*="/assets/USDC/${ISSUER}/icon"]`).first();
+  await expect(icon).toBeVisible();
+});
+
 test("a contract call reads as the call, and opens into its trace", async ({
   page,
 }) => {

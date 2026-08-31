@@ -125,7 +125,7 @@ function OfferAssetCell({ asset }: { asset: OfferAsset }) {
   return (
     <span className="flex flex-wrap items-center gap-2">
       <span className="flex items-center gap-2">
-        <AssetIcon code={code} size={16} />
+        <AssetIcon code={code} issuer={asset.asset_issuer} />
         <UntrustedText value={code} maxLength={12} />
       </span>
       {asset.asset_issuer === undefined ? null : (
@@ -225,7 +225,7 @@ function BalanceRow({ balance }: { balance: BalanceRecord }) {
           <span className="text-muted-foreground">pool share</span>
         ) : (
           <span className="flex items-center gap-2">
-            <AssetIcon code={code} size={16} />
+            <AssetIcon code={code} issuer={balance.asset_issuer} />
             <UntrustedText value={code} maxLength={12} />
           </span>
         )}

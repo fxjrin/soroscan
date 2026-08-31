@@ -31,6 +31,10 @@ func (s stubIcons) Icon(context.Context, string, string) ([]byte, string, error)
 	return s.body, s.contentType, s.err
 }
 
+func (s stubIcons) Cached() []icons.CachedIcon {
+	return nil
+}
+
 func TestAssetIconRoute(t *testing.T) {
 	issuer := "G" + strings.Repeat("A", 55)
 	get := func(h *Handler, path string) *httptest.ResponseRecorder {
