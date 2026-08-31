@@ -29,6 +29,15 @@ const (
 	cacheBudget   = 128 * 1024 * 1024
 )
 
+// domainOverrides patches assets whose on-chain home_domain points at a
+// host that serves no stellar.toml while the issuer still maintains one
+// elsewhere. Every entry names an issuer-operated domain, verified by
+// hand: this is a repair list, not a directory. Circle moved its
+// home_domain to circle.com without moving the toml off centre.io.
+var domainOverrides = map[string]string{
+	"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": "centre.io",
+}
+
 var (
 	domainShape = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 	imageTypes  = map[string]bool{
@@ -91,9 +100,13 @@ func (s *Service) Icon(ctx context.Context, code, issuer string) ([]byte, string
 }
 
 func (s *Service) resolve(ctx context.Context, code, issuer string) ([]byte, string, error) {
-	domain, err := s.homeDomain(ctx, issuer)
-	if err != nil {
-		return nil, "", err
+	domain, overridden := domainOverrides[code+":"+issuer]
+	if !overridden {
+		var err error
+		domain, err = s.homeDomain(ctx, issuer)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	if !domainShape.MatchString(strings.ToLower(domain)) || len(domain) > 253 {
 		return nil, "", ErrNoIcon
