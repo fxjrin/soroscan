@@ -1,5 +1,5 @@
 import { Address } from "@/components/address";
-import { AssetIcon } from "@/components/asset-icon";
+import { AssetLink } from "@/components/asset-link";
 import {
   netBalanceChanges,
   type NetBalanceChange,
@@ -18,11 +18,15 @@ export function NetChangeLine({ change }: { change: NetBalanceChange }) {
             : "inline-flex items-center gap-1.5 font-mono text-emerald-700 dark:text-emerald-400"
         }
       >
-        <AssetIcon code={change.assetCode} issuer={change.assetIssuer} />
         <span>
           {change.amount.startsWith("-") ? "" : "+"}
-          {change.amount} {change.assetCode}
-        </span>
+          {change.amount}
+        </span>{" "}
+        <AssetLink
+          code={change.assetCode}
+          issuer={change.assetIssuer}
+          showDomain={false}
+        />
       </span>
       {change.assetIssuer ? (
         <span className="flex items-center gap-1.5 text-muted-foreground">

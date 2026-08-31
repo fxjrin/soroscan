@@ -3,7 +3,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ArrowRight, ChevronRight, Clock } from "lucide-react";
 import { Address } from "@/components/address";
-import { AssetIcon } from "@/components/asset-icon";
+import { AssetLink } from "@/components/asset-link";
 import { FunctionChip, OpTag, StatusChip } from "@/components/op-tag";
 import { CopyButton } from "@/components/copy-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -747,12 +747,13 @@ function OperationsTable({
           <DataCell numeric>
             {op.amount ? (
               <span className="inline-flex items-center gap-1.5 font-mono">
+                {formatDecimalDisplay(op.amount)}{" "}
                 {op.assetCode ? (
-                  <AssetIcon code={op.assetCode} issuer={op.assetIssuer} />
-                ) : null}
-                {formatDecimalDisplay(op.amount)}
-                {op.assetCode ? (
-                  <span className="text-muted-foreground">{op.assetCode}</span>
+                  <AssetLink
+                    code={op.assetCode}
+                    issuer={op.assetIssuer}
+                    showDomain={false}
+                  />
                 ) : null}
               </span>
             ) : (
@@ -785,11 +786,17 @@ function BalanceDelta({ effect }: { effect: EffectRecord }) {
           : "inline-flex items-center gap-1.5 font-mono text-red-600 dark:text-red-400"
       }
     >
-      {code ? <AssetIcon code={code} issuer={effect.asset_issuer} /> : null}
       <span>
         {credited ? "+" : "-"}
-        {formatDecimalDisplay(effect.amount ?? "")} {code}
-      </span>
+        {formatDecimalDisplay(effect.amount ?? "")}
+      </span>{" "}
+      {code ? (
+        <AssetLink
+          code={code}
+          issuer={effect.asset_issuer}
+          showDomain={false}
+        />
+      ) : null}
     </span>
   );
 }

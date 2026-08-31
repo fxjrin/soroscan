@@ -42,6 +42,7 @@ type reader interface {
 
 type iconSource interface {
 	Icon(ctx context.Context, code, issuer string) ([]byte, string, error)
+	Meta(ctx context.Context, code, issuer string) (icons.Meta, error)
 	Cached() []icons.CachedIcon
 }
 
@@ -59,6 +60,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /contracts/{id}/transactions", h.contractTransactions)
 	mux.HandleFunc("GET /ledgers/{sequence}/soroban", h.ledgerSoroban)
 	mux.HandleFunc("GET /assets/{code}/{issuer}/icon", h.assetIcon)
+	mux.HandleFunc("GET /assets/{code}/{issuer}/meta", h.assetMeta)
 	mux.HandleFunc("GET /assets/icons", h.cachedIcons)
 	return mux
 }
@@ -216,6 +218,29 @@ func (h *Handler) assetIcon(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		log.Printf("write icon: %v", err)
 	}
+}
+
+func (h *Handler) assetMeta(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	issuer := r.PathValue("issuer")
+	if !codePattern.MatchString(code) || !issuerPattern.MatchString(issuer) {
+		writeError(w, http.StatusBadRequest, "invalid asset")
+		return
+	}
+	meta, err := h.icons.Meta(r.Context(), code, issuer)
+	if errors.Is(err, icons.ErrNoMeta) {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		writeError(w, http.StatusNotFound, "no meta for this asset")
+		return
+	}
+	if err != nil {
+		log.Printf("asset meta %s-%s: %v", code, issuer, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	// meta refreshes hourly at most, so browsers may hold it that long
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	writeJSON(w, meta)
 }
 
 func (h *Handler) cachedIcons(w http.ResponseWriter, _ *http.Request) {

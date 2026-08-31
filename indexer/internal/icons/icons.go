@@ -1,7 +1,7 @@
-// Package icons resolves and caches token icons the SEP-1 way: the
+// Package icons resolves and caches token identity the SEP-1 way: the
 // issuer account names a home domain on chain, the domain's stellar.toml
-// names the image, and this service fetches it so viewers never talk to
-// issuer infrastructure themselves.
+// names the image and the official name, and this service fetches both
+// so viewers never talk to issuer infrastructure themselves.
 package icons
 
 import (
@@ -21,12 +21,27 @@ import (
 // no toml, no matching entry, or an image the service refuses to serve.
 var ErrNoIcon = errors.New("no icon for this asset")
 
+// ErrNoMeta means the issuer publishes nothing at all, not even a home
+// domain, so there is no identity to report.
+var ErrNoMeta = errors.New("no meta for this asset")
+
+var errNoDomain = errors.New("issuer names no home domain")
+
+// errTransient marks a failure that says nothing about the asset: a rate
+// limit, a timeout, a connection dropped mid-body. Such an outcome is
+// surfaced to the caller and never cached, so a blip cannot pin a real
+// asset to a miss for the negative ttl.
+var errTransient = errors.New("transient upstream failure")
+
 const (
 	maxTomlBytes  = 100 * 1024 // the size SEP-1 itself allows
 	maxImageBytes = 512 * 1024
-	positiveTTL   = 24 * time.Hour
-	negativeTTL   = time.Hour
-	cacheBudget   = 128 * 1024 * 1024
+	// issuer-written text flows into api responses; keep it label-sized
+	maxNameRunes = 64
+	maxDescRunes = 400
+	positiveTTL  = 24 * time.Hour
+	negativeTTL  = time.Hour
+	cacheBudget  = 128 * 1024 * 1024
 	// a dead issuer domain should cost the first viewer seconds, not the
 	// full client timeout three times over
 	stepTimeout = 4 * time.Second
@@ -54,8 +69,20 @@ var (
 type entry struct {
 	body        []byte
 	contentType string
+	domain      string
+	name        string
+	desc        string
 	fetchedAt   time.Time
-	found       bool
+	found       bool // an icon was fetched; meta can exist without one
+}
+
+// a floor per entry so the byte budget also bounds the number of cached
+// misses, which carry issuer text but no image body
+const entryOverhead = 256
+
+func (e *entry) size() int {
+	return entryOverhead + len(e.body) + len(e.contentType) +
+		len(e.domain) + len(e.name) + len(e.desc)
 }
 
 type Service struct {
@@ -82,39 +109,71 @@ func New(client *http.Client, horizonURL string) *Service {
 	}
 }
 
+// Meta is what an issuer publishes about one of its assets. Domain is
+// always set; the rest depends on what the stellar.toml offers.
+type Meta struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Domain      string `json:"domain"`
+	Icon        bool   `json:"icon"`
+}
+
 // Icon returns the image bytes and content type for an asset, or ErrNoIcon.
 // Outcomes are cached either way, so a busy page cannot hammer an issuer.
 func (s *Service) Icon(ctx context.Context, code, issuer string) ([]byte, string, error) {
+	cached, err := s.resolved(ctx, code, issuer)
+	if err != nil {
+		return nil, "", err
+	}
+	if !cached.found {
+		return nil, "", ErrNoIcon
+	}
+	return cached.body, cached.contentType, nil
+}
+
+// Meta reports the issuer-published identity of an asset, or ErrNoMeta
+// when the issuer names no home domain at all. It shares the icon
+// resolution, so asking for both costs one trip to the issuer.
+func (s *Service) Meta(ctx context.Context, code, issuer string) (Meta, error) {
+	cached, err := s.resolved(ctx, code, issuer)
+	if err != nil {
+		return Meta{}, err
+	}
+	if cached.domain == "" {
+		return Meta{}, ErrNoMeta
+	}
+	return Meta{
+		Name:        cached.name,
+		Description: cached.desc,
+		Domain:      cached.domain,
+		Icon:        cached.found,
+	}, nil
+}
+
+func (s *Service) resolved(ctx context.Context, code, issuer string) (*entry, error) {
 	key := code + ":" + issuer
 	for {
 		if cached, ok := s.lookup(key); ok {
-			if !cached.found {
-				return nil, "", ErrNoIcon
-			}
-			return cached.body, cached.contentType, nil
+			return cached, nil
 		}
 		done, leader := s.claim(key)
 		if leader {
-			defer s.release(key)
 			break
 		}
 		// somebody else is already resolving this asset; share their work
 		select {
 		case <-done:
 		case <-ctx.Done():
-			return nil, "", ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
-	body, contentType, err := s.resolve(ctx, code, issuer)
-	if errors.Is(err, ErrNoIcon) {
-		s.store(key, &entry{fetchedAt: time.Now()})
-		return nil, "", err
-	}
+	defer s.release(key)
+	resolved, err := s.resolve(ctx, code, issuer)
 	if err != nil {
-		return nil, "", err // transient upstream trouble is not worth caching
+		return nil, err // transient upstream trouble is not worth caching
 	}
-	s.store(key, &entry{body: body, contentType: contentType, fetchedAt: time.Now(), found: true})
-	return body, contentType, nil
+	s.store(key, resolved)
+	return resolved, nil
 }
 
 func (s *Service) claim(key string) (chan struct{}, bool) {
@@ -137,23 +196,42 @@ func (s *Service) release(key string) {
 	}
 }
 
-func (s *Service) resolve(ctx context.Context, code, issuer string) ([]byte, string, error) {
+func (s *Service) resolve(ctx context.Context, code, issuer string) (*entry, error) {
+	now := time.Now()
 	domain, overridden := domainOverrides[code+":"+issuer]
 	if !overridden {
 		var err error
 		domain, err = s.homeDomain(ctx, issuer)
+		if errors.Is(err, errNoDomain) {
+			return &entry{fetchedAt: now}, nil
+		}
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 	}
 	if !domainShape.MatchString(strings.ToLower(domain)) || len(domain) > 253 {
-		return nil, "", ErrNoIcon
+		return &entry{fetchedAt: now}, nil
 	}
-	imageURL, err := s.imageURL(ctx, domain, code, issuer)
+	resolved := &entry{domain: domain, fetchedAt: now}
+	currency, err := s.tomlCurrency(ctx, domain, code, issuer)
+	if errors.Is(err, errTransient) {
+		return nil, err
+	}
 	if err != nil {
-		return nil, "", err
+		return resolved, nil // a dead or useless toml still leaves the domain known
 	}
-	return s.fetchImage(ctx, imageURL)
+	resolved.name = currency.name
+	resolved.desc = currency.desc
+	if currency.image != "" {
+		body, contentType, err := s.fetchImage(ctx, currency.image)
+		if errors.Is(err, errTransient) {
+			return nil, err
+		}
+		if err == nil {
+			resolved.body, resolved.contentType, resolved.found = body, contentType, true
+		}
+	}
+	return resolved, nil
 }
 
 func (s *Service) homeDomain(ctx context.Context, issuer string) (string, error) {
@@ -164,47 +242,57 @@ func (s *Service) homeDomain(ctx context.Context, issuer string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("horizon account: %w", err)
 	}
-	// any 4xx means the issuer cannot be looked up, which for an icon is
-	// the same fact as an issuer without one
+	// a rate limit or timeout is about our traffic, not the issuer; caching
+	// it as "no domain" would blank real assets for the negative ttl
+	if status == http.StatusTooManyRequests || status == http.StatusRequestTimeout {
+		return "", fmt.Errorf("horizon account: %w: status %d", errTransient, status)
+	}
+	// any other 4xx means the issuer cannot be looked up, which for identity
+	// purposes is the same fact as an issuer publishing nothing
 	if status >= 400 && status < 500 {
-		return "", ErrNoIcon
+		return "", errNoDomain
 	}
 	if status != http.StatusOK {
 		return "", fmt.Errorf("horizon account: status %d", status)
 	}
 	if payload.HomeDomain == "" {
-		return "", ErrNoIcon
+		return "", errNoDomain
 	}
 	return payload.HomeDomain, nil
 }
 
-func (s *Service) imageURL(ctx context.Context, domain, code, issuer string) (string, error) {
+// tomlCurrency fetches a domain's stellar.toml and returns the matching
+// currency entry. Every failure reads the same to the caller: the domain
+// offered nothing usable for this asset.
+func (s *Service) tomlCurrency(ctx context.Context, domain, code, issuer string) (tomlEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(s.tomlURL, domain), nil)
 	if err != nil {
-		return "", fmt.Errorf("toml request: %w", err)
+		return tomlEntry{}, fmt.Errorf("toml request: %w", err)
 	}
 	response, err := s.client.Do(request)
 	if err != nil {
-		return "", ErrNoIcon // an unreachable domain is a fact about the issuer
+		return tomlEntry{}, fmt.Errorf("toml fetch: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", ErrNoIcon
+		return tomlEntry{}, fmt.Errorf("toml fetch: status %d", response.StatusCode)
 	}
 	text, err := io.ReadAll(io.LimitReader(response.Body, maxTomlBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("toml read: %w", err)
+		return tomlEntry{}, fmt.Errorf("toml read: %w: %v", errTransient, err)
 	}
 	if len(text) > maxTomlBytes {
-		return "", ErrNoIcon
+		return tomlEntry{}, fmt.Errorf("toml larger than %d bytes", maxTomlBytes)
 	}
-	image := currencyImage(string(text), code, issuer)
-	if image == "" || !strings.HasPrefix(image, "https://") {
-		return "", ErrNoIcon
+	currency := currencyMeta(string(text), code, issuer)
+	currency.name = clean(currency.name, maxNameRunes)
+	currency.desc = clean(currency.desc, maxDescRunes)
+	if !strings.HasPrefix(currency.image, "https://") {
+		currency.image = ""
 	}
-	return image, nil
+	return currency, nil
 }
 
 func (s *Service) fetchImage(ctx context.Context, url string) ([]byte, string, error) {
@@ -229,7 +317,7 @@ func (s *Service) fetchImage(ctx context.Context, url string) ([]byte, string, e
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxImageBytes+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("image read: %w", err)
+		return nil, "", fmt.Errorf("image read: %w: %v", errTransient, err)
 	}
 	if len(body) > maxImageBytes {
 		return nil, "", ErrNoIcon
@@ -261,6 +349,8 @@ func (s *Service) getJSON(ctx context.Context, url string, out any) (int, error)
 type CachedIcon struct {
 	Code      string    `json:"code"`
 	Issuer    string    `json:"issuer"`
+	Domain    string    `json:"domain,omitempty"`
+	Name      string    `json:"name,omitempty"`
 	Found     bool      `json:"found"`
 	Bytes     int       `json:"bytes"`
 	FetchedAt time.Time `json:"fetched_at"`
@@ -282,6 +372,8 @@ func (s *Service) Cached() []CachedIcon {
 		out = append(out, CachedIcon{
 			Code:      code,
 			Issuer:    issuer,
+			Domain:    cached.domain,
+			Name:      cached.name,
 			Found:     cached.found,
 			Bytes:     len(cached.body),
 			FetchedAt: cached.fetchedAt,
@@ -311,42 +403,59 @@ func (s *Service) store(key string, value *entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if old, ok := s.cache[key]; ok {
-		s.cacheBytes -= len(old.body)
+		s.cacheBytes -= old.size()
 	} else {
 		s.order = append(s.order, key)
 	}
 	s.cache[key] = value
-	s.cacheBytes += len(value.body)
+	s.cacheBytes += value.size()
 	for s.cacheBytes > cacheBudget && len(s.order) > 0 {
 		oldest := s.order[0]
 		s.order = s.order[1:]
 		if evicted, ok := s.cache[oldest]; ok {
-			s.cacheBytes -= len(evicted.body)
+			s.cacheBytes -= evicted.size()
 			delete(s.cache, oldest)
 		}
 	}
 }
 
-// currencyImage walks the [[CURRENCIES]] sections with a tolerant line
+type tomlEntry struct {
+	name  string
+	desc  string
+	image string
+}
+
+// currencyMeta walks the [[CURRENCIES]] sections with a tolerant line
 // parser: real files disagree on spacing and quoting, and one malformed
 // section must not cost the entries after it.
-func currencyImage(text, code, issuer string) string {
-	var image string
-	var codeMatch, issuerMatch, inCurrency bool
-	flush := func() string {
-		if codeMatch && issuerMatch {
-			return image
+func currencyMeta(text, code, issuer string) tomlEntry {
+	var current, best tomlEntry
+	var codeMatch, issuerMatch, inCurrency, haveBest bool
+	matched := func() bool { return codeMatch && issuerMatch }
+	// an image is the most a section can offer, so the first matched
+	// section that carries one wins; otherwise the first matched section
+	// stands, so a duplicate entry cannot erase a real one after it
+	consider := func() bool {
+		if !matched() {
+			return false
 		}
-		return ""
+		if current.image != "" {
+			best = current
+			return true
+		}
+		if !haveBest {
+			best, haveBest = current, true
+		}
+		return false
 	}
 	for _, rawLine := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(rawLine)
 		if strings.HasPrefix(line, "[") {
-			if found := flush(); found != "" {
-				return found
+			if consider() {
+				return best
 			}
 			inCurrency = strings.ReplaceAll(line, " ", "") == "[[CURRENCIES]]"
-			image, codeMatch, issuerMatch = "", false, false
+			current, codeMatch, issuerMatch = tomlEntry{}, false, false
 			continue
 		}
 		if !inCurrency || line == "" || strings.HasPrefix(line, "#") {
@@ -361,11 +470,54 @@ func currencyImage(text, code, issuer string) string {
 			codeMatch = unquote(value) == code
 		case "issuer":
 			issuerMatch = unquote(value) == issuer
+		case "name":
+			current.name = unquote(value)
+		case "desc":
+			current.desc = unquote(value)
 		case "image":
-			image = unquote(value)
+			current.image = unquote(value)
 		}
 	}
-	return flush()
+	consider()
+	return best
+}
+
+// clean strips control and direction-spoofing characters and caps length:
+// this text is written by the issuer and served to browsers verbatim
+// otherwise, so C0 and C1 controls, bidi overrides, and zero-width joiners
+// all have to go before it leaves the service.
+func clean(value string, maxRunes int) string {
+	var builder strings.Builder
+	for _, r := range value {
+		if isUnsafeRune(r) {
+			continue
+		}
+		builder.WriteRune(r)
+		maxRunes--
+		if maxRunes == 0 {
+			break
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+// isUnsafeRune reports characters that must not survive into an api
+// response: C0 and C1 control ranges, plus the bidi and zero-width
+// formatting characters that can make one string render as another.
+func isUnsafeRune(r rune) bool {
+	switch {
+	case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f:
+		return true
+	case r >= 0x202a && r <= 0x202e: // LRE, RLE, PDF, LRO, RLO
+		return true
+	case r >= 0x2066 && r <= 0x2069: // LRI, RLI, FSI, PDI
+		return true
+	case r == 0x200b, r == 0x200c, r == 0x200d, r == 0x200e, r == 0x200f:
+		return true // zero-width space, ZWNJ, ZWJ, LRM, RLM
+	case r == 0xfeff: // zero-width no-break space / BOM
+		return true
+	}
+	return false
 }
 
 func unquote(value string) string {

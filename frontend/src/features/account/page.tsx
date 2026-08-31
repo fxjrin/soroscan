@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router";
 import { Address } from "@/components/address";
-import { AssetIcon } from "@/components/asset-icon";
+import { AssetLink } from "@/components/asset-link";
 import {
   DataCell,
   DataRow,
@@ -124,10 +124,7 @@ function OfferAssetCell({ asset }: { asset: OfferAsset }) {
   }
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-2">
-        <AssetIcon code={code} issuer={asset.asset_issuer} />
-        <UntrustedText value={code} maxLength={12} />
-      </span>
+      <AssetLink code={code} issuer={asset.asset_issuer} showDomain={false} />
       {asset.asset_issuer === undefined ? null : (
         <Address value={asset.asset_issuer} />
       )}
@@ -224,10 +221,11 @@ function BalanceRow({ balance }: { balance: BalanceRecord }) {
         {code === undefined ? (
           <span className="text-muted-foreground">pool share</span>
         ) : (
-          <span className="flex items-center gap-2">
-            <AssetIcon code={code} issuer={balance.asset_issuer} />
-            <UntrustedText value={code} maxLength={12} />
-          </span>
+          <AssetLink
+            code={code}
+            issuer={balance.asset_issuer}
+            showDomain={false}
+          />
         )}
       </DataCell>
       <DataCell>

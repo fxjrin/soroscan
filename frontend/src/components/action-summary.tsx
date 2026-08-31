@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { Address } from "@/components/address";
-import { AssetIcon } from "@/components/asset-icon";
+import { AssetLink } from "@/components/asset-link";
 import { FunctionChip } from "@/components/op-tag";
 import { formatDecimalDisplay } from "@/lib/format";
 import type { PrimaryOp } from "@/lib/activity";
 
-/** An asset named in a sentence: the amount, its icon, and its code. */
+/** An asset named in a sentence: the amount, then the linked asset. */
 function AssetMention({
   amount,
   code,
@@ -16,12 +16,11 @@ function AssetMention({
   issuer?: string;
 }) {
   return (
-    // the literal spaces cost the flex layout nothing and keep the
+    // the literal space costs the flex layout nothing and keeps the
     // sentence reading as words when selected, copied, or matched
     <span className="flex items-center gap-1.5">
       {amount === undefined ? null : <span>{amount}</span>}{" "}
-      <AssetIcon code={code} issuer={issuer} />
-      <span>{code}</span>
+      <AssetLink code={code} issuer={issuer} />
     </span>
   );
 }

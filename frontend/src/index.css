@@ -399,6 +399,21 @@
   outline-color: color-mix(in oklab, var(--primary) 55%, transparent);
 }
 
+/* an asset is an on-chain identifier too: hovering one mention underlines
+   every mention of the same asset on the page, so a reader can confirm two
+   rows name the identical token. the dashed gold matches the focus
+   language addresses use, and an underline never moves a character */
+.asset-code {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: transparent;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 120ms ease;
+}
+[data-asset][data-asset-match] .asset-code {
+  text-decoration-color: color-mix(in oklab, var(--primary) 70%, transparent);
+}
+
 /* a folded json branch stands in for its contents with a count, so the
    reader can collapse a subtree and still see how much is inside */
 .json-branch[open] > summary .json-folded {
@@ -415,7 +430,8 @@
   .ring-pop {
     animation: none !important;
   }
-  [data-address] {
+  [data-address],
+  .asset-code {
     transition: none;
   }
 }

@@ -490,6 +490,58 @@ export interface OfferRecord {
   last_modified_time?: string;
 }
 
+export interface AssetStatRecord {
+  asset_type: string;
+  asset_code: string;
+  asset_issuer: string;
+  /** the sep-41 contract this asset resolves to, when one exists */
+  contract_id?: string;
+  num_claimable_balances?: number;
+  num_liquidity_pools?: number;
+  num_contracts?: number;
+  accounts?: {
+    authorized?: number;
+    authorized_to_maintain_liabilities?: number;
+    unauthorized?: number;
+  };
+  // every amount is a decimal string and must stay one
+  balances?: {
+    authorized?: string;
+    authorized_to_maintain_liabilities?: string;
+    unauthorized?: string;
+  };
+  claimable_balances_amount?: string;
+  liquidity_pools_amount?: string;
+  contracts_amount?: string;
+  flags?: {
+    auth_required?: boolean;
+    auth_revocable?: boolean;
+    auth_immutable?: boolean;
+    auth_clawback_enabled?: boolean;
+  };
+}
+
+/** Network-wide standing of one issued asset, from Horizon's asset stats. */
+export async function fetchAssetStat(
+  network: NetworkId,
+  code: string,
+  issuer: string,
+  signal?: AbortSignal,
+): Promise<AssetStatRecord> {
+  const page = await horizonGet<HorizonPage<AssetStatRecord>>(
+    network,
+    "/assets",
+    { asset_code: code, asset_issuer: issuer, limit: 1 },
+    signal,
+  );
+  const record = page._embedded?.records?.[0];
+  // the assets endpoint answers an unknown pair with an empty page, not 404
+  if (record === undefined) {
+    throw new NotFoundError(`/assets/${code}-${issuer}`);
+  }
+  return record;
+}
+
 export function fetchAccountOffers(
   network: NetworkId,
   address: string,

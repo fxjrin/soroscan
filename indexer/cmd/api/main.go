@@ -48,7 +48,7 @@ func run() error {
 	if horizonURL == "" {
 		horizonURL = "https://horizon.stellar.org"
 	}
-	iconService := icons.New(&http.Client{Timeout: 8 * time.Second}, horizonURL)
+	iconService := icons.New(icons.GuardedClient(8*time.Second), horizonURL)
 	handler := api.New(store.New(pool), iconService)
 	server := &http.Server{
 		Addr:         listenAddr,

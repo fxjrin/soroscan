@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  fetchAssetMeta,
   fetchContractTransactions,
   indexerAvailable,
   INDEXER_PAGE,
@@ -111,4 +112,42 @@ test("refuses to call a network with no indexer", async () => {
   await expect(
     fetchContractTransactions("testnet", CONTRACT),
   ).rejects.toThrowError(/no indexer/);
+});
+
+const ISSUER = "GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA";
+
+test("maps asset meta and treats a 404 as a plain no", async () => {
+  const fetchMock = stubIndexer(200, {
+    name: "Aquarius",
+    description: "the aqua token",
+    domain: "aqua.network",
+    icon: true,
+  });
+
+  const meta = await fetchAssetMeta("mainnet", "AQUA", ISSUER);
+
+  expect(String(fetchMock.mock.calls[0][0])).toContain(
+    `/assets/AQUA/${ISSUER}/meta`,
+  );
+  expect(meta).toEqual({
+    name: "Aquarius",
+    description: "the aqua token",
+    domain: "aqua.network",
+    icon: true,
+  });
+
+  stubIndexer(404, { error: "no meta for this asset" });
+  expect(await fetchAssetMeta("mainnet", "AQUA", ISSUER)).toBeNull();
+});
+
+test("asset meta without a domain is malformed, not partial", async () => {
+  stubIndexer(200, { name: "Aquarius" });
+
+  await expect(fetchAssetMeta("mainnet", "AQUA", ISSUER)).rejects.toThrowError(
+    /malformed/,
+  );
+});
+
+test("asset meta is a quiet null on a network with no indexer", async () => {
+  expect(await fetchAssetMeta("testnet", "AQUA", ISSUER)).toBeNull();
 });

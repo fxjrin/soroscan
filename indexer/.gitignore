@@ -1,0 +1,4 @@
+# build outputs from go build ./cmd/...
+/api
+/indexer
+/verify
