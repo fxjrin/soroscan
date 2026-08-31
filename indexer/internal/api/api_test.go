@@ -24,11 +24,16 @@ func (stubStore) LedgerStats(context.Context, uint32) (store.LedgerStats, error)
 type stubIcons struct {
 	body        []byte
 	contentType string
+	meta        icons.Meta
 	err         error
 }
 
 func (s stubIcons) Icon(context.Context, string, string) ([]byte, string, error) {
 	return s.body, s.contentType, s.err
+}
+
+func (s stubIcons) Meta(context.Context, string, string) (icons.Meta, error) {
+	return s.meta, s.err
 }
 
 func (s stubIcons) Cached() []icons.CachedIcon {
@@ -63,6 +68,42 @@ func TestAssetIconRoute(t *testing.T) {
 	invalid := get(New(stubStore{}, stubIcons{}), "/assets/not-a-code!/"+issuer+"/icon")
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid code: status %d", invalid.Code)
+	}
+}
+
+func TestAssetMetaRoute(t *testing.T) {
+	issuer := "G" + strings.Repeat("A", 55)
+	get := func(h *Handler, path string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		h.Routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		return recorder
+	}
+
+	meta := icons.Meta{Name: "Aquarius", Description: "the aqua token", Domain: "aqua.network", Icon: true}
+	served := get(New(stubStore{}, stubIcons{meta: meta}), "/assets/AQUA/"+issuer+"/meta")
+	if served.Code != http.StatusOK {
+		t.Fatalf("status %d body %q", served.Code, served.Body.String())
+	}
+	body := served.Body.String()
+	for _, fragment := range []string{`"name":"Aquarius"`, `"domain":"aqua.network"`, `"icon":true`} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("body %q lacks %q", body, fragment)
+		}
+	}
+	if served.Header().Get("Cache-Control") != "public, max-age=3600" ||
+		served.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("unexpected headers: %v", served.Header())
+	}
+
+	missing := get(New(stubStore{}, stubIcons{err: icons.ErrNoMeta}), "/assets/AQUA/"+issuer+"/meta")
+	if missing.Code != http.StatusNotFound ||
+		missing.Header().Get("Cache-Control") != "public, max-age=3600" {
+		t.Fatalf("miss: status %d headers %v", missing.Code, missing.Header())
+	}
+
+	invalid := get(New(stubStore{}, stubIcons{}), "/assets/AQUA/not-an-issuer/meta")
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid issuer: status %d", invalid.Code)
 	}
 }
 

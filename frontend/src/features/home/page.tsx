@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { ArrowDown, Layers } from "lucide-react";
 import { Address } from "@/components/address";
 import { CopyButton } from "@/components/copy-button";
-import { AssetIcon } from "@/components/asset-icon";
+import { AssetLink } from "@/components/asset-link";
 import { InfoHint } from "@/components/info-hint";
 import { LedgerPulse } from "@/components/ledger-pulse";
 import { LogoMark } from "@/components/logo";
@@ -613,29 +613,22 @@ export function HomePage() {
                     <span className="flex flex-col items-end gap-1 sm:min-w-[8.5rem]">
                       {row.op?.amount ? (
                         <span className="flex items-center gap-1.5 font-mono">
+                          {formatDecimalDisplay(row.op.amount)}{" "}
                           {row.op.assetCode ? (
-                            <AssetIcon
+                            <AssetLink
                               code={row.op.assetCode}
                               issuer={row.op.assetIssuer}
+                              showDomain={false}
                             />
-                          ) : null}
-                          {formatDecimalDisplay(row.op.amount)}
-                          {row.op.assetCode ? (
-                            <span className="text-muted-foreground">
-                              {row.op.assetCode}
-                            </span>
                           ) : null}
                         </span>
                       ) : row.op?.assetCode ? (
-                        <span className="flex items-center gap-1.5 font-mono">
-                          <AssetIcon
-                            code={row.op.assetCode}
-                            issuer={row.op.assetIssuer}
-                          />
-                          <span className="text-muted-foreground">
-                            {row.op.assetCode}
-                          </span>
-                        </span>
+                        <AssetLink
+                          code={row.op.assetCode}
+                          issuer={row.op.assetIssuer}
+                          showDomain={false}
+                          className="font-mono"
+                        />
                       ) : (
                         <span
                           className="text-muted-foreground/50"

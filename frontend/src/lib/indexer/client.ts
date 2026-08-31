@@ -186,3 +186,58 @@ export function assetIconUrl(
   }
   return `${urls[0]}/assets/${code}/${issuer}/icon`;
 }
+
+export interface AssetMeta {
+  /** issuer-written display name; render as untrusted text */
+  name?: string;
+  /** issuer-written description; render as untrusted text */
+  description?: string;
+  domain: string;
+  /** the proxy holds an icon for this asset */
+  icon: boolean;
+}
+
+/**
+ * The issuer-published identity of an asset, resolved server side from
+ * the same SEP-1 chain as the icon. Null when the issuer publishes
+ * nothing, which for most junk assets is the final answer.
+ */
+export async function fetchAssetMeta(
+  network: NetworkId,
+  code: string,
+  issuer: string,
+  signal?: AbortSignal,
+): Promise<AssetMeta | null> {
+  const urls = NETWORKS[network].indexerUrls;
+  if (urls.length === 0) {
+    return null;
+  }
+  const { ok, status, body } = await fetchJsonWithFailover<{
+    name?: string;
+    description?: string;
+    domain?: string;
+    icon?: boolean;
+    error?: string;
+  }>(urls, `/assets/${code}/${issuer}/meta`, undefined, signal);
+  if (status === 404) {
+    return null;
+  }
+  if (!ok) {
+    throw new UpstreamError(
+      typeof body?.error === "string"
+        ? body.error
+        : `indexer responded ${status}`,
+      status,
+    );
+  }
+  if (typeof body?.domain !== "string" || body.domain === "") {
+    throw new UpstreamError("indexer: malformed response body");
+  }
+  return {
+    name: typeof body.name === "string" ? body.name : undefined,
+    description:
+      typeof body.description === "string" ? body.description : undefined,
+    domain: body.domain,
+    icon: body.icon === true,
+  };
+}

@@ -243,7 +243,7 @@ test("renders the overview and decoded operations", async ({ page }) => {
     page.getByRole("heading", { name: "Transaction" }),
   ).toBeVisible();
   await expect(page.getByText("succeeded")).toBeVisible();
-  await expect(page.getByText("sent 12.5 XLM to")).toBeVisible();
+  await expect(page.getByText("sent 12.5 XLM stellar.org to")).toBeVisible();
   await expect(page.getByText("and 1 more operation")).toBeVisible();
   await expect(page.getByText(HASH)).toBeVisible();
   await expect(page.getByText(G1).first()).toBeVisible();
@@ -500,7 +500,7 @@ test("the loading rows land where the real rows will", async ({ page }) => {
   const settled = await boxesOf(page, labels);
 
   releaseOps();
-  await expect(page.getByText("sent 12.5 XLM to")).toBeVisible();
+  await expect(page.getByText("sent 12.5 XLM stellar.org to")).toBeVisible();
   const complete = await boxesOf(page, labels);
 
   expect(settled).toEqual(loading);
@@ -848,7 +848,7 @@ test("hovering an address reveals it in full and marks its other occurrences", a
   // the summary line is the last thing the operations query paints, so
   // waiting for it keeps a later render from adding addresses after the
   // count and before the hover
-  await expect(page.getByText("sent 12.5 XLM to")).toBeVisible();
+  await expect(page.getByText("sent 12.5 XLM stellar.org to")).toBeVisible();
   const instances = page.locator(`[data-address="${G1}"]`);
   const total = await instances.count();
   expect(total).toBeGreaterThan(1);
@@ -870,6 +870,31 @@ test("hovering an address reveals it in full and marks its other occurrences", a
 
   await page.mouse.move(0, 0);
   await expect(page.locator("[data-match]")).toHaveCount(0);
+});
+
+test("hovering an asset underlines every mention of the same token", async ({
+  page,
+}) => {
+  await page.goto(`/tx/${HASH}`);
+
+  await expect(page.getByText("sent 12.5 XLM stellar.org to")).toBeVisible();
+  // the balance-changes tab names the same asset on both sides of the move,
+  // so the page carries more than one mention of it
+  await page.getByRole("tab", { name: "Balance changes" }).click();
+  const mentions = page.locator('[data-asset="XLM"]');
+  // wait for the tab's mentions to settle before comparing counts
+  await expect.poll(() => mentions.count()).toBeGreaterThan(1);
+  const total = await mentions.count();
+
+  await expect(page.locator("[data-asset-match]")).toHaveCount(0);
+
+  await mentions.first().hover();
+  await expect(
+    page.locator('[data-asset="XLM"][data-asset-match]'),
+  ).toHaveCount(total);
+
+  await page.mouse.move(0, 0);
+  await expect(page.locator("[data-asset-match]")).toHaveCount(0);
 });
 
 test("an address is a link to the entity it names", async ({ page }) => {

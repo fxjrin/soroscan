@@ -1,6 +1,7 @@
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { Layout } from "@/components/layout";
 import { AccountPage } from "@/features/account/page";
+import { AssetPage } from "@/features/asset/page";
 import { ContractPage } from "@/features/contract/page";
 import { HomePage } from "@/features/home/page";
 import { LedgerPage } from "@/features/ledger/page";
@@ -15,6 +16,7 @@ const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: "tx/:hash", element: <TxPage /> },
       { path: "account/:address", element: <AccountPage /> },
+      { path: "asset/:asset", element: <AssetPage /> },
       { path: "contract/:contractId", element: <ContractPage /> },
       { path: "ledger/:sequence", element: <LedgerPage /> },
       { path: "*", element: <NotFoundPage /> },
