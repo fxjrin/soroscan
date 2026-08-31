@@ -42,6 +42,7 @@ type reader interface {
 
 type iconSource interface {
 	Icon(ctx context.Context, code, issuer string) ([]byte, string, error)
+	Cached() []icons.CachedIcon
 }
 
 type Handler struct {
@@ -58,6 +59,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /contracts/{id}/transactions", h.contractTransactions)
 	mux.HandleFunc("GET /ledgers/{sequence}/soroban", h.ledgerSoroban)
 	mux.HandleFunc("GET /assets/{code}/{issuer}/icon", h.assetIcon)
+	mux.HandleFunc("GET /assets/icons", h.cachedIcons)
 	return mux
 }
 
@@ -214,6 +216,12 @@ func (h *Handler) assetIcon(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		log.Printf("write icon: %v", err)
 	}
+}
+
+func (h *Handler) cachedIcons(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, struct {
+		Icons []icons.CachedIcon `json:"icons"`
+	}{h.icons.Cached()})
 }
 
 func parseCursor(raw string) (*store.Cursor, bool, bool) {

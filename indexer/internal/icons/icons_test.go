@@ -137,3 +137,24 @@ func TestIconWithoutHomeDomain(t *testing.T) {
 		t.Fatalf("expected ErrNoIcon without home_domain, got %v", err)
 	}
 }
+
+func TestCachedListsOutcomes(t *testing.T) {
+	service, _ := testService(t, "aqua.network", "image/png", true)
+	if _, _, err := service.Icon(context.Background(), "AQUA", issuer); err != nil {
+		t.Fatalf("icon: %v", err)
+	}
+	if _, _, err := service.Icon(context.Background(), "NOPE", issuer); !errors.Is(err, ErrNoIcon) {
+		t.Fatalf("expected miss, got %v", err)
+	}
+
+	cached := service.Cached()
+	if len(cached) != 2 {
+		t.Fatalf("cached %d entries, want 2", len(cached))
+	}
+	if cached[0].Code != "NOPE" || cached[0].Found || cached[0].Bytes != 0 {
+		t.Fatalf("unexpected newest entry: %+v", cached[0])
+	}
+	if cached[1].Code != "AQUA" || !cached[1].Found || cached[1].Bytes == 0 {
+		t.Fatalf("unexpected oldest entry: %+v", cached[1])
+	}
+}

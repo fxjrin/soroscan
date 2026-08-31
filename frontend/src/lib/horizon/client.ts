@@ -153,11 +153,15 @@ export interface OperationRecord {
     amount?: string;
     asset_type?: string;
     asset_code?: string;
+    asset_issuer?: string;
   }>;
+  source_asset_issuer?: string;
   selling_asset_type?: string;
   selling_asset_code?: string;
+  selling_asset_issuer?: string;
   buying_asset_type?: string;
   buying_asset_code?: string;
+  buying_asset_issuer?: string;
   trustor?: string;
   trustee?: string;
   asset_issuer?: string;

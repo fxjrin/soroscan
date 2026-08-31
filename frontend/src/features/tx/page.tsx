@@ -748,7 +748,7 @@ function OperationsTable({
             {op.amount ? (
               <span className="inline-flex items-center gap-1.5 font-mono">
                 {op.assetCode ? (
-                  <AssetIcon code={op.assetCode} size={14} />
+                  <AssetIcon code={op.assetCode} issuer={op.assetIssuer} />
                 ) : null}
                 {formatDecimalDisplay(op.amount)}
                 {op.assetCode ? (
@@ -785,7 +785,7 @@ function BalanceDelta({ effect }: { effect: EffectRecord }) {
           : "inline-flex items-center gap-1.5 font-mono text-red-600 dark:text-red-400"
       }
     >
-      {code ? <AssetIcon code={code} size={14} /> : null}
+      {code ? <AssetIcon code={code} issuer={effect.asset_issuer} /> : null}
       <span>
         {credited ? "+" : "-"}
         {formatDecimalDisplay(effect.amount ?? "")} {code}

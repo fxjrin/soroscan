@@ -27,6 +27,9 @@ const (
 	positiveTTL   = 24 * time.Hour
 	negativeTTL   = time.Hour
 	cacheBudget   = 128 * 1024 * 1024
+	// a dead issuer domain should cost the first viewer seconds, not the
+	// full client timeout three times over
+	stepTimeout = 4 * time.Second
 )
 
 // domainOverrides patches assets whose on-chain home_domain points at a
@@ -66,6 +69,7 @@ type Service struct {
 	cache      map[string]*entry
 	order      []string // oldest first, for byte-budget eviction
 	cacheBytes int
+	inFlight   map[string]chan struct{}
 }
 
 func New(client *http.Client, horizonURL string) *Service {
@@ -74,6 +78,7 @@ func New(client *http.Client, horizonURL string) *Service {
 		horizonURL: strings.TrimSuffix(horizonURL, "/"),
 		tomlURL:    "https://%s/.well-known/stellar.toml",
 		cache:      make(map[string]*entry),
+		inFlight:   make(map[string]chan struct{}),
 	}
 }
 
@@ -81,11 +86,24 @@ func New(client *http.Client, horizonURL string) *Service {
 // Outcomes are cached either way, so a busy page cannot hammer an issuer.
 func (s *Service) Icon(ctx context.Context, code, issuer string) ([]byte, string, error) {
 	key := code + ":" + issuer
-	if cached, ok := s.lookup(key); ok {
-		if !cached.found {
-			return nil, "", ErrNoIcon
+	for {
+		if cached, ok := s.lookup(key); ok {
+			if !cached.found {
+				return nil, "", ErrNoIcon
+			}
+			return cached.body, cached.contentType, nil
 		}
-		return cached.body, cached.contentType, nil
+		done, leader := s.claim(key)
+		if leader {
+			defer s.release(key)
+			break
+		}
+		// somebody else is already resolving this asset; share their work
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		}
 	}
 	body, contentType, err := s.resolve(ctx, code, issuer)
 	if errors.Is(err, ErrNoIcon) {
@@ -97,6 +115,26 @@ func (s *Service) Icon(ctx context.Context, code, issuer string) ([]byte, string
 	}
 	s.store(key, &entry{body: body, contentType: contentType, fetchedAt: time.Now(), found: true})
 	return body, contentType, nil
+}
+
+func (s *Service) claim(key string) (chan struct{}, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if done, ok := s.inFlight[key]; ok {
+		return done, false
+	}
+	done := make(chan struct{})
+	s.inFlight[key] = done
+	return done, true
+}
+
+func (s *Service) release(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if done, ok := s.inFlight[key]; ok {
+		close(done)
+		delete(s.inFlight, key)
+	}
 }
 
 func (s *Service) resolve(ctx context.Context, code, issuer string) ([]byte, string, error) {
@@ -126,7 +164,9 @@ func (s *Service) homeDomain(ctx context.Context, issuer string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("horizon account: %w", err)
 	}
-	if status == http.StatusNotFound {
+	// any 4xx means the issuer cannot be looked up, which for an icon is
+	// the same fact as an issuer without one
+	if status >= 400 && status < 500 {
 		return "", ErrNoIcon
 	}
 	if status != http.StatusOK {
@@ -139,6 +179,8 @@ func (s *Service) homeDomain(ctx context.Context, issuer string) (string, error)
 }
 
 func (s *Service) imageURL(ctx context.Context, domain, code, issuer string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(s.tomlURL, domain), nil)
 	if err != nil {
 		return "", fmt.Errorf("toml request: %w", err)
@@ -166,6 +208,8 @@ func (s *Service) imageURL(ctx context.Context, domain, code, issuer string) (st
 }
 
 func (s *Service) fetchImage(ctx context.Context, url string) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("image request: %w", err)
@@ -211,6 +255,39 @@ func (s *Service) getJSON(ctx context.Context, url string, out any) (int, error)
 		return 0, err
 	}
 	return response.StatusCode, nil
+}
+
+// CachedIcon describes one cache entry for operational visibility.
+type CachedIcon struct {
+	Code      string    `json:"code"`
+	Issuer    string    `json:"issuer"`
+	Found     bool      `json:"found"`
+	Bytes     int       `json:"bytes"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// Cached lists the cache newest first, so operators can see what the
+// service resolved without reaching into the process.
+func (s *Service) Cached() []CachedIcon {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]CachedIcon, 0, len(s.order))
+	for i := len(s.order) - 1; i >= 0; i-- {
+		key := s.order[i]
+		cached, ok := s.cache[key]
+		if !ok {
+			continue
+		}
+		code, issuer, _ := strings.Cut(key, ":")
+		out = append(out, CachedIcon{
+			Code:      code,
+			Issuer:    issuer,
+			Found:     cached.found,
+			Bytes:     len(cached.body),
+			FetchedAt: cached.fetchedAt,
+		})
+	}
+	return out
 }
 
 func (s *Service) lookup(key string) (*entry, bool) {
