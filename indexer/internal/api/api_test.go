@@ -1,9 +1,66 @@
 package api
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/soroscan-io/soroscan/indexer/internal/icons"
+	"github.com/soroscan-io/soroscan/indexer/internal/store"
 )
+
+type stubStore struct{}
+
+func (stubStore) TransactionsByContract(context.Context, string, *store.Cursor, int, store.TransactionFilter) (store.Page, error) {
+	return store.Page{}, nil
+}
+
+func (stubStore) LedgerStats(context.Context, uint32) (store.LedgerStats, error) {
+	return store.LedgerStats{}, nil
+}
+
+type stubIcons struct {
+	body        []byte
+	contentType string
+	err         error
+}
+
+func (s stubIcons) Icon(context.Context, string, string) ([]byte, string, error) {
+	return s.body, s.contentType, s.err
+}
+
+func TestAssetIconRoute(t *testing.T) {
+	issuer := "G" + strings.Repeat("A", 55)
+	get := func(h *Handler, path string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		h.Routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		return recorder
+	}
+
+	served := get(New(stubStore{}, stubIcons{body: []byte("png"), contentType: "image/png"}),
+		"/assets/AQUA/"+issuer+"/icon")
+	if served.Code != http.StatusOK || served.Body.String() != "png" {
+		t.Fatalf("status %d body %q", served.Code, served.Body.String())
+	}
+	if served.Header().Get("Content-Type") != "image/png" ||
+		served.Header().Get("Cache-Control") != "public, max-age=86400" {
+		t.Fatalf("unexpected headers: %v", served.Header())
+	}
+
+	missing := get(New(stubStore{}, stubIcons{err: icons.ErrNoIcon}),
+		"/assets/AQUA/"+issuer+"/icon")
+	if missing.Code != http.StatusNotFound ||
+		missing.Header().Get("Cache-Control") != "public, max-age=3600" {
+		t.Fatalf("miss: status %d headers %v", missing.Code, missing.Header())
+	}
+
+	invalid := get(New(stubStore{}, stubIcons{}), "/assets/not-a-code!/"+issuer+"/icon")
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid code: status %d", invalid.Code)
+	}
+}
 
 func TestParseCursor(t *testing.T) {
 	hash := strings.Repeat("ab", 32)

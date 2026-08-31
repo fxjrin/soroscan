@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/soroscan-io/soroscan/indexer/internal/api"
+	"github.com/soroscan-io/soroscan/indexer/internal/icons"
 	"github.com/soroscan-io/soroscan/indexer/internal/store"
 )
 
@@ -43,7 +44,12 @@ func run() error {
 	}
 	defer pool.Close()
 
-	handler := api.New(store.New(pool))
+	horizonURL := os.Getenv("HORIZON_URL")
+	if horizonURL == "" {
+		horizonURL = "https://horizon.stellar.org"
+	}
+	iconService := icons.New(&http.Client{Timeout: 8 * time.Second}, horizonURL)
+	handler := api.New(store.New(pool), iconService)
 	server := &http.Server{
 		Addr:         listenAddr,
 		Handler:      handler.Routes(),
