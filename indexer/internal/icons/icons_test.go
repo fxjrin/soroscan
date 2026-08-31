@@ -114,6 +114,21 @@ func TestIconRefusesNonImageContent(t *testing.T) {
 	}
 }
 
+func TestIconDomainOverrideSkipsHorizon(t *testing.T) {
+	service, _ := testService(t, "unused.example", "image/png", true)
+	domainOverrides["AQUA:"+issuer] = "aqua.network"
+	defer delete(domainOverrides, "AQUA:"+issuer)
+	service.horizonURL = "https://horizon.invalid" // any account call would fail loudly
+
+	body, _, err := service.Icon(context.Background(), "AQUA", issuer)
+	if err != nil {
+		t.Fatalf("overridden icon: %v", err)
+	}
+	if string(body) != pngBytes {
+		t.Fatalf("body %q", body)
+	}
+}
+
 func TestIconWithoutHomeDomain(t *testing.T) {
 	service, _ := testService(t, "", "image/png", true)
 
