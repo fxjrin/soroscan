@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/soroscan-io/soroscan/indexer/internal/icons"
 	"github.com/soroscan-io/soroscan/indexer/internal/store"
 )
 
@@ -20,7 +21,11 @@ const (
 	maxLimit     = 50
 )
 
-var contractPattern = regexp.MustCompile(`^C[A-Z2-7]{55}$`)
+var (
+	contractPattern = regexp.MustCompile(`^C[A-Z2-7]{55}$`)
+	issuerPattern   = regexp.MustCompile(`^G[A-Z2-7]{55}$`)
+	codePattern     = regexp.MustCompile(`^[A-Za-z0-9]{1,12}$`)
+)
 
 // a cursor names the last row of the previous page: its ledger, and its
 // transaction hash so a ledger larger than a page still paginates row by
@@ -35,18 +40,24 @@ type reader interface {
 	LedgerStats(ctx context.Context, sequence uint32) (store.LedgerStats, error)
 }
 
-type Handler struct {
-	store reader
+type iconSource interface {
+	Icon(ctx context.Context, code, issuer string) ([]byte, string, error)
 }
 
-func New(st reader) *Handler {
-	return &Handler{store: st}
+type Handler struct {
+	store reader
+	icons iconSource
+}
+
+func New(st reader, ic iconSource) *Handler {
+	return &Handler{store: st, icons: ic}
 }
 
 func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /contracts/{id}/transactions", h.contractTransactions)
 	mux.HandleFunc("GET /ledgers/{sequence}/soroban", h.ledgerSoroban)
+	mux.HandleFunc("GET /assets/{code}/{issuer}/icon", h.assetIcon)
 	return mux
 }
 
@@ -175,6 +186,34 @@ func (h *Handler) ledgerSoroban(w http.ResponseWriter, r *http.Request) {
 		Functions   int64 `json:"functions"`
 		Indexed     bool  `json:"indexed"`
 	}{stats.Invocations, stats.Contracts, stats.Functions, stats.Indexed})
+}
+
+func (h *Handler) assetIcon(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	issuer := r.PathValue("issuer")
+	if !codePattern.MatchString(code) || !issuerPattern.MatchString(issuer) {
+		writeError(w, http.StatusBadRequest, "invalid asset")
+		return
+	}
+	body, contentType, err := h.icons.Icon(r.Context(), code, issuer)
+	if errors.Is(err, icons.ErrNoIcon) {
+		// a miss is a stable fact about the issuer; let browsers keep it
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		writeError(w, http.StatusNotFound, "no icon for this asset")
+		return
+	}
+	if err != nil {
+		log.Printf("asset icon %s-%s: %v", code, issuer, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if _, err := w.Write(body); err != nil {
+		log.Printf("write icon: %v", err)
+	}
 }
 
 func parseCursor(raw string) (*store.Cursor, bool, bool) {
