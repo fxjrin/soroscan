@@ -4,13 +4,49 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Soroscan - Stellar and Soroban block explorer</title>
     <meta
       name="description"
-      content="Soroscan is an open-source Stellar block explorer. See what's happening on Stellar."
+      content="Explore Stellar and Soroban on-chain: transactions, accounts, assets, smart contracts, and ledgers, on mainnet and testnet. Open-source block explorer."
     />
+
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#ffffff"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#0a0a0a"
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Soroscan" />
+    <meta
+      property="og:title"
+      content="Soroscan - Stellar and Soroban block explorer"
+    />
+    <meta
+      property="og:description"
+      content="Explore Stellar and Soroban on-chain: transactions, accounts, assets, smart contracts, and ledgers, on mainnet and testnet."
+    />
+    <meta property="og:url" content="https://soroscan.io/" />
+    <meta property="og:image" content="https://soroscan.io/og-image.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Soroscan - Stellar and Soroban block explorer"
+    />
+    <meta
+      name="twitter:description"
+      content="Explore Stellar and Soroban on-chain: transactions, accounts, assets, smart contracts, and ledgers."
+    />
+    <meta name="twitter:image" content="https://soroscan.io/og-image.png" />
+
     <link rel="preconnect" href="https://horizon.stellar.org" crossorigin />
     <link rel="preconnect" href="https://mainnet.sorobanrpc.com" crossorigin />
-    <title>soroscan</title>
     <script>
       let stored = null;
       try {
@@ -22,6 +58,27 @@
         ? stored === "dark"
         : matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.classList.toggle("dark", dark);
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://soroscan.io/#website",
+            "name": "Soroscan",
+            "url": "https://soroscan.io/",
+            "description": "Open-source block explorer for the Stellar network and Soroban smart contracts."
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://soroscan.io/#org",
+            "name": "Soroscan",
+            "url": "https://soroscan.io/",
+            "logo": "https://soroscan.io/favicon.svg"
+          }
+        ]
+      }
     </script>
   </head>
   <body>

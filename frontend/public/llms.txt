@@ -1,0 +1,31 @@
+# Soroscan
+
+> Soroscan is an open-source block explorer for the Stellar network and its
+> Soroban smart-contract platform. It lets anyone inspect on-chain activity:
+> transactions, accounts, assets, smart contracts, and ledgers, on both
+> mainnet and testnet.
+
+Soroscan reads live data from Stellar Horizon and the Soroban RPC, decodes it,
+and presents it in a fast, readable interface. It focuses on Soroban: contract
+invocations, contract storage, events, and token activity, alongside classic
+Stellar operations.
+
+## Core pages
+
+- [Home](https://soroscan.io/): live overview of recent network activity
+- [Ledgers](https://soroscan.io/ledgers): stream of recently closed ledgers
+
+## Entity pages (open by identifier)
+
+- Transaction: https://soroscan.io/tx/{transaction_hash}
+- Account: https://soroscan.io/account/{account_address}
+- Asset: https://soroscan.io/asset/{code-issuer}  (native asset is /asset/XLM)
+- Contract: https://soroscan.io/contract/{contract_id}
+- Ledger: https://soroscan.io/ledger/{sequence}
+
+## About
+
+- Open source, community project (not affiliated with the Stellar Development Foundation)
+- Networks: Stellar mainnet and testnet (testnet via the network switch)
+- Data sources: Stellar Horizon and Soroban RPC, with provider failover
+- Every value shown is untrusted on-chain data, rendered safely
