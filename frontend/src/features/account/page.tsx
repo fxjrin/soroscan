@@ -24,7 +24,8 @@ import {
 } from "@/features/history-table-layout";
 import { enabledFlags, sortedBalances, xlmBreakdown } from "@/lib/account";
 import { assetCodeOf } from "@/lib/activity";
-import { formatAgo, formatDecimalDisplay } from "@/lib/format";
+import { formatAgo, formatDecimalDisplay, truncateMiddle } from "@/lib/format";
+import { useSeo } from "@/lib/seo";
 import {
   NotFoundError,
   type AccountRecord,
@@ -511,6 +512,11 @@ function AccountSkeleton({ tab }: { tab: string }) {
 
 export function AccountPage() {
   const { address = "" } = useParams();
+  useSeo({
+    title: `Account ${truncateMiddle(address, 6)} - Soroscan`,
+    description:
+      "A Stellar account on Soroscan: balances, transactions, and Soroban activity.",
+  });
   const [params, setParams] = useSearchParams();
   const target = classifySearch(address);
   const valid = target.type === "account";

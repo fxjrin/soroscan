@@ -22,6 +22,7 @@ import {
   formatTimestamp,
   subtractDecimalStrings,
 } from "@/lib/format";
+import { useSeo } from "@/lib/seo";
 import {
   BeforeHistoryError,
   NotFoundError,
@@ -562,6 +563,10 @@ function LedgerBody({ ledger }: { ledger: LedgerRecord }) {
 
 export function LedgerPage() {
   const { sequence = "" } = useParams();
+  useSeo({
+    title: `Ledger ${sequence} - Soroscan`,
+    description: `Stellar ledger ${sequence} on Soroscan: transactions, operations, and close time.`,
+  });
   const target = classifySearch(sequence);
   const valid =
     target.type === "ledger" && Number(target.value) <= MAX_LEDGER_SEQUENCE;

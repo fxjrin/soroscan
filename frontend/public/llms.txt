@@ -12,8 +12,7 @@ Stellar operations.
 
 ## Core pages
 
-- [Home](https://soroscan.io/): live overview of recent network activity
-- [Ledgers](https://soroscan.io/ledgers): stream of recently closed ledgers
+- [Home](https://soroscan.io/): live overview of recent network activity, latest ledgers, and search
 
 ## Entity pages (open by identifier)
 
