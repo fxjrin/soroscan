@@ -1,43 +1,51 @@
 import { expect, test } from "vitest";
-import { networkToggleUrl, resolveNetwork } from "./network";
+import { networkUrl, resolveNetwork } from "./network";
 
-test("resolveNetwork picks testnet from the subdomain", () => {
+test("resolveNetwork picks the network from the subdomain", () => {
   expect(resolveNetwork("testnet.soroscan.io", "")).toBe("testnet");
+  expect(resolveNetwork("futurenet.soroscan.io", "")).toBe("futurenet");
   expect(resolveNetwork("soroscan.io", "")).toBe("mainnet");
 });
 
 test("resolveNetwork falls back to the query param for local dev", () => {
   expect(resolveNetwork("localhost", "?network=testnet")).toBe("testnet");
+  expect(resolveNetwork("localhost", "?network=futurenet")).toBe("futurenet");
   expect(resolveNetwork("localhost", "?network=mainnet")).toBe("mainnet");
   expect(resolveNetwork("localhost", "")).toBe("mainnet");
 });
 
-test("networkToggleUrl switches subdomains in production", () => {
+test("networkUrl switches subdomains in production", () => {
+  const loc = { hostname: "soroscan.io", pathname: "/tx/abc", search: "" };
+  expect(networkUrl(loc, "testnet")).toBe("https://testnet.soroscan.io/tx/abc");
+  expect(networkUrl(loc, "futurenet")).toBe(
+    "https://futurenet.soroscan.io/tx/abc",
+  );
   expect(
-    networkToggleUrl({
-      hostname: "soroscan.io",
-      pathname: "/tx/abc",
-      search: "",
-    }),
-  ).toBe("https://testnet.soroscan.io/tx/abc");
-  expect(
-    networkToggleUrl({
-      hostname: "testnet.soroscan.io",
-      pathname: "/",
-      search: "",
-    }),
+    networkUrl(
+      { hostname: "testnet.soroscan.io", pathname: "/", search: "" },
+      "mainnet",
+    ),
   ).toBe("https://soroscan.io/");
 });
 
-test("networkToggleUrl switches the query param elsewhere", () => {
+test("networkUrl uses the query param elsewhere", () => {
   expect(
-    networkToggleUrl({ hostname: "localhost", pathname: "/", search: "" }),
+    networkUrl({ hostname: "localhost", pathname: "/", search: "" }, "testnet"),
   ).toBe("/?network=testnet");
   expect(
-    networkToggleUrl({
-      hostname: "localhost",
-      pathname: "/ledger/5",
-      search: "?network=testnet",
-    }),
+    networkUrl(
+      { hostname: "localhost", pathname: "/", search: "" },
+      "futurenet",
+    ),
+  ).toBe("/?network=futurenet");
+  expect(
+    networkUrl(
+      {
+        hostname: "localhost",
+        pathname: "/ledger/5",
+        search: "?network=testnet",
+      },
+      "mainnet",
+    ),
   ).toBe("/ledger/5");
 });
