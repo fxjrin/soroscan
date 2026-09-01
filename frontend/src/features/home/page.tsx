@@ -10,6 +10,7 @@ import { LedgerPulse } from "@/components/ledger-pulse";
 import { LogoMark } from "@/components/logo";
 import { PopNumber } from "@/components/pop-number";
 import { SearchBox } from "@/components/search-box";
+import { useSeo } from "@/lib/seo";
 import { TxActivityChart } from "@/components/tx-activity-chart";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -202,6 +203,7 @@ function TxListSkeleton() {
 }
 
 export function HomePage() {
+  useSeo({ title: "Soroscan - Stellar and Soroban block explorer" });
   const now = useNow();
   const health = useQuery(healthQuery(ACTIVE_NETWORK));
   const fees = useQuery(feeStatsQuery(ACTIVE_NETWORK));

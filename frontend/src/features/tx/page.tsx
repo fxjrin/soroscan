@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { ArrowRight, ChevronRight, Clock } from "lucide-react";
 import { Address } from "@/components/address";
 import { AssetLink } from "@/components/asset-link";
+import { useSeo } from "@/lib/seo";
 import { FunctionChip, OpTag, StatusChip } from "@/components/op-tag";
 import { CopyButton } from "@/components/copy-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1069,6 +1070,11 @@ function XdrPanel({ tx }: { tx: TxDetailRecord }) {
 export function TxPage() {
   const now = useNow();
   const { hash = "" } = useParams();
+  useSeo({
+    title: `Transaction ${truncateMiddle(hash, 6)} - Soroscan`,
+    description:
+      "A Stellar transaction on Soroscan: operations, Soroban contract events, and fees, decoded.",
+  });
   const [params, setParams] = useSearchParams();
   const target = classifySearch(hash);
   const valid = target.type === "tx";

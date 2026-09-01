@@ -8,6 +8,7 @@ import { useAssetMeta } from "@/lib/asset-meta";
 import { EntityShell, Row, ValueBar } from "@/features/entity-shell";
 import { InvalidEntity } from "@/features/invalid-entity";
 import { formatDecimalDisplay } from "@/lib/format";
+import { useSeo } from "@/lib/seo";
 import {
   fetchAssetStat,
   fetchLatestLedgers,
@@ -211,6 +212,10 @@ export function AssetPage() {
   const { asset: raw = "" } = useParams();
   const ref = parseAssetParam(raw);
   const meta = useAssetMeta(ref?.code ?? "", ref?.issuer);
+  useSeo({
+    title: `${ref?.code ?? "Asset"} - Soroscan`,
+    description: `The ${ref?.code ?? "asset"} asset on Stellar: holders, supply, and transfers, on Soroscan.`,
+  });
 
   if (ref === undefined) {
     return <InvalidEntity expected="asset" value={raw} />;

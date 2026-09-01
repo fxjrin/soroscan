@@ -28,6 +28,7 @@ import {
 import { InvalidEntity } from "@/features/invalid-entity";
 import { classifySearch } from "@/lib/search";
 import { formatAmount, truncateMiddle } from "@/lib/format";
+import { useSeo } from "@/lib/seo";
 import { ACTIVE_NETWORK, appPath } from "@/lib/network";
 import {
   contractCodeQuery,
@@ -697,6 +698,11 @@ function ContractSkeleton({ tab }: { tab: string }) {
 
 export function ContractPage() {
   const { contractId = "" } = useParams();
+  useSeo({
+    title: `Contract ${truncateMiddle(contractId, 6)} - Soroscan`,
+    description:
+      "A Soroban smart contract on Soroscan: invocations, storage, and events, decoded.",
+  });
   const [params, setParams] = useSearchParams();
   const target = classifySearch(contractId);
   const valid = target.type === "contract";
