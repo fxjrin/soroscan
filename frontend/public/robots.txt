@@ -1,0 +1,33 @@
+# Soroscan - open-source Stellar and Soroban block explorer
+# All crawlers are welcome, including AI search assistants.
+
+User-agent: *
+Allow: /
+
+# AI search crawlers - explicitly allowed so Soroscan can be surfaced by
+# assistants like ChatGPT, Claude, Gemini, and Perplexity.
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://soroscan.io/sitemap.xml
