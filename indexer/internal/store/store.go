@@ -50,16 +50,16 @@ type Store struct {
 	pool *pgxpool.Pool
 
 	mu        sync.Mutex // guards the dictionary caches below
-	contracts map[string]int16
-	functions map[string]int16
+	contracts map[string]int32
+	functions map[string]int32
 	addresses map[string]int32
 }
 
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
 		pool:      pool,
-		contracts: make(map[string]int16),
-		functions: make(map[string]int16),
+		contracts: make(map[string]int32),
+		functions: make(map[string]int32),
 		addresses: make(map[string]int32),
 	}
 }
@@ -332,7 +332,7 @@ func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey strin
 	if err != nil {
 		return Page{}, fmt.Errorf("%w: %q: %v", ErrInvalidContract, contractStrkey, err)
 	}
-	var contractID int16
+	var contractID int32
 	err = s.pool.QueryRow(ctx, `SELECT id FROM contracts WHERE contract_id = $1`, raw[:]).Scan(&contractID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Page{}, nil
@@ -340,7 +340,7 @@ func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey strin
 	if err != nil {
 		return Page{}, fmt.Errorf("query contract: %w", err)
 	}
-	functionID := int16(-1)
+	functionID := int32(-1)
 	if filter.Function != "" {
 		err = s.pool.QueryRow(ctx, `SELECT id FROM functions WHERE name = $1`, filter.Function).Scan(&functionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -375,7 +375,7 @@ func (s *Store) TransactionsByContract(ctx context.Context, contractStrkey strin
 // ledger: the rest of the cursor's own ledger first, then whole ledgers
 // below it. A single query ordered by (ledger, tx_hash) cannot stream
 // from the compressed chunks, whose order covers the ledger alone.
-func (s *Store) pageByLedgers(ctx context.Context, contractID, functionID int16, before *Cursor, limit int, filter TransactionFilter) ([]Transaction, error) {
+func (s *Store) pageByLedgers(ctx context.Context, contractID, functionID int32, before *Cursor, limit int, filter TransactionFilter) ([]Transaction, error) {
 	var out []Transaction
 	var rawArgs [][]byte
 	boundLedger := int64(math.MaxInt64) // no cursor; every real ledger is below this
@@ -429,7 +429,7 @@ func (s *Store) pageByLedgers(ctx context.Context, contractID, functionID int16,
 // pageByWindows walks fixed ledger windows downward, so a function too
 // rare for the streaming plan still makes deterministic progress: every
 // window decompresses only its own slice of the contract's history.
-func (s *Store) pageByWindows(ctx context.Context, contractID, functionID int16, before *Cursor, limit int, filter TransactionFilter) (Page, error) {
+func (s *Store) pageByWindows(ctx context.Context, contractID, functionID int32, before *Cursor, limit int, filter TransactionFilter) (Page, error) {
 	floor, err := s.scanFloor(ctx, contractID, filter.From)
 	if err != nil {
 		return Page{}, err
@@ -495,7 +495,7 @@ func (s *Store) pageByWindows(ctx context.Context, contractID, functionID int16,
 
 // scanCeiling is the newest ledger a windowed scan starts under: the last
 // row of the contract, or of its time bound. Zero means nothing matches.
-func (s *Store) scanCeiling(ctx context.Context, contractID int16, to time.Time) (int64, error) {
+func (s *Store) scanCeiling(ctx context.Context, contractID int32, to time.Time) (int64, error) {
 	sql := `SELECT ledger FROM contract_transactions WHERE contract_id = $1`
 	args := []any{contractID}
 	if !to.IsZero() {
@@ -516,7 +516,7 @@ func (s *Store) scanCeiling(ctx context.Context, contractID int16, to time.Time)
 
 // scanFloor is the oldest ledger a windowed scan must reach: the first
 // row of the contract, or of its time bound. Zero means nothing matches.
-func (s *Store) scanFloor(ctx context.Context, contractID int16, from time.Time) (int64, error) {
+func (s *Store) scanFloor(ctx context.Context, contractID int32, from time.Time) (int64, error) {
 	sql := `SELECT ledger FROM contract_transactions WHERE contract_id = $1`
 	args := []any{contractID}
 	if !from.IsZero() {
@@ -537,7 +537,7 @@ func (s *Store) scanFloor(ctx context.Context, contractID int16, from time.Time)
 
 // filterPredicates renders the optional function and time conditions with
 // parameter numbers starting at next, for appending to a base query.
-func filterPredicates(next int, functionID int16, filter TransactionFilter) (string, []any) {
+func filterPredicates(next int, functionID int32, filter TransactionFilter) (string, []any) {
 	var sql strings.Builder
 	var args []any
 	if functionID >= 0 {
@@ -557,7 +557,7 @@ func filterPredicates(next int, functionID int16, filter TransactionFilter) (str
 
 // recentLedgers lists the newest distinct matching ledgers below the
 // bound, at most max of them: one page needs at most one ledger per row.
-func (s *Store) recentLedgers(ctx context.Context, contractID, functionID int16, below int64, max int, filter TransactionFilter) ([]int64, error) {
+func (s *Store) recentLedgers(ctx context.Context, contractID, functionID int32, below int64, max int, filter TransactionFilter) ([]int64, error) {
 	pred, predArgs := filterPredicates(3, functionID, filter)
 	rows, err := s.pool.Query(ctx,
 		`SELECT DISTINCT ct.ledger FROM contract_transactions ct
@@ -662,10 +662,10 @@ func (s *Store) expandArgs(ctx context.Context, out []Transaction, rawArgs [][]b
 	return nil
 }
 
-func (s *Store) snapshotContracts(wanted map[string][]byte) (map[string]int16, map[string][]byte) {
+func (s *Store) snapshotContracts(wanted map[string][]byte) (map[string]int32, map[string][]byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	known := make(map[string]int16, len(wanted))
+	known := make(map[string]int32, len(wanted))
 	missing := make(map[string][]byte)
 	for key, raw := range wanted {
 		if id, ok := s.contracts[key]; ok {
@@ -677,10 +677,10 @@ func (s *Store) snapshotContracts(wanted map[string][]byte) (map[string]int16, m
 	return known, missing
 }
 
-func (s *Store) snapshotFunctions(wanted map[string]struct{}) (map[string]int16, map[string]struct{}) {
+func (s *Store) snapshotFunctions(wanted map[string]struct{}) (map[string]int32, map[string]struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	known := make(map[string]int16, len(wanted))
+	known := make(map[string]int32, len(wanted))
 	missing := make(map[string]struct{})
 	for key := range wanted {
 		if id, ok := s.functions[key]; ok {
@@ -707,7 +707,7 @@ func (s *Store) snapshotAddresses(wanted map[string]struct{}) (map[string]int32,
 	return known, missing
 }
 
-func resolveContracts(ctx context.Context, tx pgx.Tx, missing map[string][]byte) (map[string]int16, error) {
+func resolveContracts(ctx context.Context, tx pgx.Tx, missing map[string][]byte) (map[string]int32, error) {
 	if len(missing) == 0 {
 		return nil, nil
 	}
@@ -725,9 +725,9 @@ func resolveContracts(ctx context.Context, tx pgx.Tx, missing map[string][]byte)
 		return nil, fmt.Errorf("select: %w", err)
 	}
 	defer rows.Close()
-	resolved := make(map[string]int16, len(missing))
+	resolved := make(map[string]int32, len(missing))
 	for rows.Next() {
-		var id int16
+		var id int32
 		var raw []byte
 		if err := rows.Scan(&id, &raw); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
@@ -737,7 +737,7 @@ func resolveContracts(ctx context.Context, tx pgx.Tx, missing map[string][]byte)
 	return resolved, rows.Err()
 }
 
-func resolveFunctions(ctx context.Context, tx pgx.Tx, missing map[string]struct{}) (map[string]int16, error) {
+func resolveFunctions(ctx context.Context, tx pgx.Tx, missing map[string]struct{}) (map[string]int32, error) {
 	if len(missing) == 0 {
 		return nil, nil
 	}
@@ -750,9 +750,9 @@ func resolveFunctions(ctx context.Context, tx pgx.Tx, missing map[string]struct{
 		return nil, fmt.Errorf("select: %w", err)
 	}
 	defer rows.Close()
-	resolved := make(map[string]int16, len(missing))
+	resolved := make(map[string]int32, len(missing))
 	for rows.Next() {
-		var id int16
+		var id int32
 		var name string
 		if err := rows.Scan(&id, &name); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
@@ -795,7 +795,7 @@ func keysOf(set map[string]struct{}) []string {
 	return keys
 }
 
-func mergeInto[V int16 | int32](dst, src map[string]V) {
+func mergeInto[V int32](dst, src map[string]V) {
 	for key, id := range src {
 		dst[key] = id
 	}
