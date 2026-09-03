@@ -3,9 +3,11 @@ const STAR_GOLD = "#F5C84C";
 export function LogoMark({
   size = 28,
   className,
+  starClassName,
 }: {
   size?: number;
   className?: string;
+  starClassName?: string;
 }) {
   return (
     <svg
@@ -33,6 +35,7 @@ export function LogoMark({
         strokeLinejoin="round"
       />
       <path
+        className={starClassName}
         d="M32 23l2.6 6.4 6.4 2.6-6.4 2.6-2.6 6.4-2.6-6.4-6.4-2.6 6.4-2.6z"
         fill={STAR_GOLD}
       />

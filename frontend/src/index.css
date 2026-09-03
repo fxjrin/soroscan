@@ -378,6 +378,126 @@
   animation: live-dot 2s ease-in-out infinite;
 }
 
+/* the floating AI launcher is the Soroscan mark in a glassy orb ringed by a
+   soft gold glow, built from the brand mark so it reads as Soroscan rather
+   than the sparkle every AI widget ships with */
+.ai-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  isolation: isolate;
+}
+.ai-orb::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--primary) 24%, transparent),
+    transparent 70%
+  );
+  filter: blur(6px);
+  z-index: -1;
+}
+.ai-orb-face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 50% 34%, #ffffff, #e8e8ec 82%);
+  box-shadow:
+    inset 0 1px 1.5px color-mix(in oklab, var(--primary) 30%, transparent),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.08),
+    0 6px 18px rgba(0, 0, 0, 0.16);
+}
+.dark .ai-orb-face {
+  background: radial-gradient(circle at 50% 34%, #26262c, #0c0c0f 82%);
+  box-shadow:
+    inset 0 1px 1.5px color-mix(in oklab, var(--primary) 26%, transparent),
+    inset 0 -9px 16px #000,
+    0 6px 18px color-mix(in oklab, #000 55%, transparent);
+}
+/* a gold rim blurred into a glow rather than animated: the launcher reads as
+   lit and alive without any motion that pulls the eye while you read */
+.ai-orb-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--primary) 60%, transparent);
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 3px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 3px)
+  );
+  filter: blur(1.5px);
+}
+.dark .ai-orb-ring {
+  background: color-mix(in oklab, var(--primary) 72%, transparent);
+  filter: blur(1.8px);
+}
+.ai-orb-btn:hover .ai-orb-ring {
+  filter: blur(1.5px) brightness(1.15);
+}
+.dark .ai-orb-btn:hover .ai-orb-ring {
+  filter: blur(1.8px) brightness(1.2);
+}
+/* a steady glow on the star, not a pulse, so it just reads brighter */
+.ai-orb-star {
+  filter: drop-shadow(
+    0 0 1.5px color-mix(in oklab, var(--primary) 70%, transparent)
+  );
+}
+
+/* the "thinking" indicator: three dots that swell in turn, the familiar
+   typing rhythm, in place of a block of skeleton lines */
+.ai-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  animation: ai-typing 1.2s ease-in-out infinite;
+}
+.ai-typing-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.ai-typing-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes ai-typing {
+  0%,
+  70%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  35% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.ai-orb-btn:hover .ai-orb-face {
+  box-shadow:
+    inset 0 1px 1.5px color-mix(in oklab, var(--primary) 40%, transparent),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.1),
+    0 8px 24px color-mix(in oklab, var(--primary) 26%, transparent);
+}
+.dark .ai-orb-btn:hover .ai-orb-face {
+  box-shadow:
+    inset 0 1px 1.5px color-mix(in oklab, var(--primary) 42%, transparent),
+    inset 0 -9px 16px #000,
+    0 8px 24px color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
 /* hovering one address marks every other place the same entity appears.
    outline rather than border or padding: the mark must not move a single
    character of the dense rows it lands in */
@@ -427,7 +547,8 @@
   .ledger-card-in,
   .ledger-card-in > div,
   .live-dot,
-  .ring-pop {
+  .ring-pop,
+  .ai-typing-dot {
     animation: none !important;
   }
   [data-address],

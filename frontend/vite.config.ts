@@ -16,6 +16,16 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  // dev-only: forward /ai to the analysis backend so the browser stays
+  // same-origin and no cross-origin allow-listing is needed locally
+  server: {
+    proxy: {
+      "/ai": {
+        target: "https://api.soroscan.io",
+        changeOrigin: true,
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],

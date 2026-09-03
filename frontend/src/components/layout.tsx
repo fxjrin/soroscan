@@ -12,6 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { AiChatWidget } from "@/components/ai/chat-widget";
 import { LogoMark } from "@/components/logo";
 import { Omnibox } from "@/components/omnibox";
 import { SiteFooter } from "@/components/site-footer";
@@ -163,6 +164,7 @@ export function Layout() {
         <Outlet />
       </div>
       <SiteFooter />
+      <AiChatWidget />
     </div>
   );
 }
