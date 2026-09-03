@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-A Stellar block explorer, live at [soroscan.io](https://soroscan.io).
+A Stellar block explorer for Mainnet, Testnet, and Futurenet, live at [soroscan.io](https://soroscan.io).
 
-> **Status: early and moving fast.** The explorer and its indexer are live on mainnet; features land incrementally. Star or watch the repo to follow along.
+> **Status: early and moving fast.** The explorer is live across Mainnet, Testnet, and Futurenet, with its indexer running on mainnet; features land incrementally. Star or watch the repo to follow along.
 
 ## Features
 
@@ -13,13 +13,14 @@ A Stellar block explorer, live at [soroscan.io](https://soroscan.io).
 - **Failed transaction diagnostics** - result codes mapped to the failing operation, explained in plain language
 - **First-class contract pages** - interface, metadata, storage, and every direct invocation across a contract's entire history, filterable by function and date
 - **Live network view** - streaming ledgers and transactions as they close
+- **Built-in AI assistant** - answers questions about on-chain data, grounded in the same live Horizon, RPC, and index data the explorer shows
 - **Honest data boundaries** - the UI always tells you how far history goes and where the data comes from
 
 ## Roadmap
 
 | Phase | Scope                                                                      | Status  |
 | ----- | -------------------------------------------------------------------------- | ------- |
-| 1     | Stateless SPA querying Horizon and Stellar RPC directly, mainnet + testnet | Live    |
+| 1     | Stateless SPA querying Horizon and Stellar RPC directly, mainnet, testnet, and futurenet | Live    |
 | 2     | Indexer serving full contract invocation history with filters              | Live    |
 | 3     | Token holders, richer search, invocation outcomes, and a realtime API      | Planned |
 
